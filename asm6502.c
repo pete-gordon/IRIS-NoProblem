@@ -228,6 +228,16 @@ void sym_define(char *symname, uint16_t addr)
     syms[num_syms++].address = addr;
 }
 
+void dump_syms(FILE *f)
+{
+    int i;
+
+    for (i=0; i<num_syms; i++)
+    {
+        fprintf(f, "%04x %s\n", syms[i].address, syms[i].name);
+    }
+}
+
 void resolve_pending(uint8_t *outbuffer, bool mustresolve)
 {
     int p, s, pt, r;
@@ -702,7 +712,7 @@ static bool assemble_line(const char *src, int offs, uint8_t *outbuffer, uint16_
                 }
                 else
                 {
-                    k = ((int)val)-((int)((*asmaddr)+2));
+                    k = ((int)val)-((int)((*asmaddr)+1));
                     if ((k < -128) || (k > 127))
                     {
                         fprintf(stderr, "Branch out of range: '%s'\n", isolated_line(thisline));

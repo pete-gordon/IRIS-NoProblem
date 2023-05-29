@@ -1,12 +1,14 @@
 TARGET = mkdemo.exe
 OBJECTS = novademo.o asm6502.o
+DEMOFILE = novademo.tap
+SYMFILE = novademo.sym
 
 CFLAGS = -Wall -Werror -O0 -g
 LDFLAGS = -g
 
 .PHONY: all clean
 
-all: $(TARGET)
+all: $(DEMOFILE)
 
 -include $(OBJECTS:.o=.d)
 
@@ -17,5 +19,9 @@ all: $(TARGET)
 $(TARGET): $(OBJECTS)
 	$(CC) -o $@ $(OBJECTS) $(LFLAGS)
 
+$(DEMOFILE): $(TARGET)
+	$(TARGET)
+
 clean:
-	del $(TARGET) $(OBJECTS) $(OBJECTS:.o=.d)
+	del $(TARGET) $(OBJECTS) $(OBJECTS:.o=.d) $(DEMOFILE) $(SYMFILE)
+

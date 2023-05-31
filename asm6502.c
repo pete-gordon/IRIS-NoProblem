@@ -228,6 +228,23 @@ void sym_define(char *symname, uint16_t addr)
     syms[num_syms++].address = addr;
 }
 
+uint16_t sym_get(char *symname)
+{
+    int i;
+
+    for (i=0; i<num_syms; i++)
+    {
+        if (strncmp(symname, syms[i].name, MAX_SYMLEN) == 0)
+        {
+            return syms[i].address;
+        }
+    }
+
+    fprintf(stderr, "Undefined symbol '%s'\n", symname);
+    exit(EXIT_FAILURE);
+    return 0;
+}
+
 void dump_syms(FILE *f)
 {
     int i;

@@ -150,15 +150,15 @@ void gen_scrwipe(uint16_t *addr)
 #define SWOBWIDTH (6*39)
 #define SWOBMID   (SWOBWIDTH / 2)
 
-#define STRIPEWOBBLE_MINSIZE (28)
-#define STRIPEWOBBLE_MAXSIZE (60)
+#define STRIPEWOBBLE_MINSIZE (24)
+#define STRIPEWOBBLE_MAXSIZE (56)
 #define STRIPEWOBBLE_MIDDLE (STRIPEWOBBLE_MAXSIZE-STRIPEWOBBLE_MINSIZE)
 #define STRIPEWOBBLE_SINTABSIZE (256)
 
 void gen_stripewobblerline(int size, uint16_t *addr)
 {
     char code[384];
-    uint8_t colourtab[] = {4, 5, 6, 3, 7};
+    uint8_t colourtab[] = {0, 4, 0, 4, 4, 4, 5, 4, 5, 5, 5, 6, 5, 6, 6, 6, 3, 6, 3, 3, 3, 7, 3, 7, 7, 7, 7 };
     int nextswap = (SWOBWIDTH-size)/2;  // we're doing half subpixel resolution, hence no
     int onoff, i, colidx;
     uint8_t thisbyte, lastbyte;
@@ -182,7 +182,7 @@ void gen_stripewobblerline(int size, uint16_t *addr)
         "    LDY #0\n"
         "    LDA #%d\n"
         "    STA (ZPTMP),Y\n"
-        "    INY\n", size, colourtab[colidx]);
+        "    INY\n", size, (0 == colourtab[colidx]) ? 4 : colourtab[colidx]);
     assemble(code, tapdata, addr);
 
 
@@ -196,21 +196,33 @@ void gen_stripewobblerline(int size, uint16_t *addr)
             nextswap += size;
         }
 
-        thisbyte |= (onoff << (5-(i%6)));
+        if (0 != colourtab[colidx])
+        {
+            thisbyte |= (onoff << (5-(i%6)));
+        }
+        else
+        {
+            if (onoff)
+            {
+                thisbyte |= ((i&1) << (5-(i%6)));
+            }
+        }
 
         if ((i%6) == 5)
         {
             if (thisbyte == lastbyte)
             {
-                assemble("    STA (ZPTMP),Y\n"
-                         "    INY\n", tapdata, addr);
+                snprintf(code, sizeof(code),
+                    "    STA (ZPTMP),Y\n"
+                    "%s", (i==(SWOBWIDTH-1)) ? "" : "    INY");
+                assemble(code, tapdata, addr);
             }
             else
             {
                 snprintf(code, sizeof(code),
                     "    LDA #$%02x\n"
                     "    STA (ZPTMP),Y\n"
-                    "    INY\n", thisbyte);
+                    "%s", thisbyte, (i==(SWOBWIDTH-1)) ? "" : "    INY");
                 assemble(code, tapdata, addr);
             }
             lastbyte = thisbyte;
@@ -226,7 +238,7 @@ void gen_stripewobbler(uint16_t *addr)
 {
     int i;
     double ang, calc;
-    uint16_t labaddr;
+    uint16_t labaddr, smcaddr;
     char label[32];
 
     assemble("stripewobbler:\n"
@@ -234,24 +246,22 @@ void gen_stripewobbler(uint16_t *addr)
              "    STA ZPSWFRAME\n"
              "    STA ZPSWFRAME2\n"
              "stripewobbler_loop:\n"
-             "    LDA #2\n"
+             "    LDA #3\n"
              "    CLC\n"
              "    ADC ZPSWFRAME\n"
              "    STA ZPSWFRAME\n"
              "    STA ZPSINPOS1\n"
              "    LDA ZPSWFRAME2\n"
              "    SEC\n"
-             "    SBC #5\n"
+             "    SBC #11\n"
              "    STA ZPSWFRAME2\n"
              "    STA ZPSINPOS2\n"
              "    LDA #0\n"
-             "    STA ZPSWYLO\n"
-             "    STA ZPSWYHI\n"
              "    STA ZPTMP\n"
-             "    STA ZPSWTOG\n"
              "    LDA #$A0\n"
              "    STA ZPTMP2\n"
              "    LDX #200\n"
+             "    CLC\n" // Nothing in the loop below should set C, so clear it now (once per frame), and avoid 2 CLCs per scanline later.
              "stripewobbler_drawloop:\n"
              "    LDY ZPSINPOS1\n"
              "    LDA stripewobbler_sintab,Y\n"
@@ -259,46 +269,44 @@ void gen_stripewobbler(uint16_t *addr)
              "    INY\n"
              "    STY ZPSINPOS1\n"
              "    LDY ZPSINPOS2\n"
-             "    CLC\n"
-             "    ADC stripewobbler_sintab,Y\n"
-             "    DEY\n"
-             "    DEY\n"
+             //"    CLC\n"
+             "    ADC stripewobbler_sintab,Y\n" // shouldn't set C as max value fits
              "    DEY\n"
              "    DEY\n"
              "    DEY\n"
              "    STY ZPSINPOS2\n"
-             "    ASL\n"
+             //"    ASL\n"                        // didn't set C when present, but we've optimised it out by pre-multiplying the sintab by 2
              "    TAY\n"
-             "stripewobbler_notoggleyet:\n"
-             "cw_smc_calc1:\n"
              "    LDA stripewobbler_table,Y\n"
-             "    STA ZPTMP4\n"
+             "    STA stripewobbler_smc_lo\n"
              "    INY\n"
-             "cw_smc_calc2:\n"
              "    LDA stripewobbler_table,Y\n"
-             "    STA ZPTMP5\n"
-             "    JSR stripewobbler_jumpo\n"
-             "    CLC\n"
+             "    STA stripewobbler_smc_hi\n"
+             "swob_smc_calc:\n"
+             "    JSR $0000\n"                  // line routines don't set C
+             //"    CLC\n"
              "    LDA #40\n"
-             "    ADC ZPTMP\n"
+             "    ADC ZPTMP\n"                  // This might set C...
              "    STA ZPTMP\n"
              "    LDA ZPTMP2\n"
-             "    ADC #0\n"
+             "    ADC #0\n"                     // ... but this then consumes it
              "    STA ZPTMP2\n"
              "    DEX\n"
              "    BNE stripewobbler_drawloop\n"
              "    JMP stripewobbler_loop\n"
-             "stripewobbler_jumpo:\n"
-             "    JMP (ZPTMP4)\n"
              ,
              tapdata, addr);
-    
+
+    smcaddr = sym_get("swob_smc_calc");
+    sym_define("stripewobbler_smc_lo", smcaddr+1);
+    sym_define("stripewobbler_smc_hi", smcaddr+2);
+
     sym_define("stripewobbler_sintab", *addr);
     for (ang=0.0f, i=0; i<STRIPEWOBBLE_SINTABSIZE; i++, ang+=((2.0f*3.1419265f)/STRIPEWOBBLE_SINTABSIZE))
     {
         calc = (sin(ang) * (STRIPEWOBBLE_MIDDLE/2)) + (STRIPEWOBBLE_MIDDLE/2); /* + STRIPEWOBBLE_MINSIZE  would give us from MIN to MAX, but we actually want 0 to MAX-MIN */
         //printf("pos %d: ang = %u\n", i, (uint8_t)calc);
-        tapdata[(*addr)++] = (uint8_t)(calc/2);
+        tapdata[(*addr)++] = ((uint8_t)(calc/2))*2; /* Pre-multiply by 2 as we use it to index into a jumptable */
     }
 
     for (i=STRIPEWOBBLE_MINSIZE; i<STRIPEWOBBLE_MAXSIZE; i++)
@@ -314,6 +322,10 @@ void gen_stripewobbler(uint16_t *addr)
     }
 }
 
+uint8_t star_big[] =
+    {
+    };
+
 
 int main(int argc, const char *argv[])
 {
@@ -328,13 +340,10 @@ int main(int argc, const char *argv[])
     sym_define("ZPTMP3",      28*2+2);
     sym_define("ZPTMP4",      28*2+3);
     sym_define("ZPTMP5",      28*2+4);
-    sym_define("ZPSWTOG",    0); /* re-use ZPWIPETAB */
-    sym_define("ZPSWYLO",    1);
-    sym_define("ZPSWYHI",    2);
-    sym_define("ZPSWFRAME",  3);
-    sym_define("ZPSWFRAME2", 3);
-    sym_define("ZPSINPOS1",   4);
-    sym_define("ZPSINPOS2",   5);
+    sym_define("ZPSWFRAME",   3);
+    sym_define("ZPSWFRAME2",  4);
+    sym_define("ZPSINPOS1",   5);
+    sym_define("ZPSINPOS2",   6);
 
     assemble("demostart:\n"
              "    SEI\n"

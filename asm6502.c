@@ -9,8 +9,7 @@
 #include "novademo.h"
 #include "asm6502.h"
 
-#define MAX_SYMLEN (32)
-#define MAX_SYMBOLS (1024)
+#define MAX_SYMBOLS (131072)
 #define MAX_REFS (32)
 
 enum
@@ -84,9 +83,8 @@ static struct asminf asmtab[] = { { "BRK", 0x00,   -1,   -1,   -1,   -1,   -1,  
                                   { "BPL",   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1, 0x10,   -1 },
                                   { "CLC", 0x18,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1 },
                                   { "JSR",   -1,   -1,   -1,   -1,   -1, 0x20,   -1,   -1,   -1,   -1,   -1,   -1 },
-                                  { "AND",   -1,   -1,   -1, 0x35,   -1,   -1, 0x3d, 0x39, 0x21, 0x31,   -1,   -1 },
+                                  { "AND",   -1, 0x29, 0x25, 0x35,   -1, 0x2d, 0x3d, 0x39, 0x21, 0x31,   -1,   -1 },
                                   { "BIT",   -1,   -1, 0x24,   -1,   -1, 0x2c,   -1,   -1,   -1,   -1,   -1,   -1 },
-                                  { "AND",   -1, 0x29, 0x25,   -1,   -1, 0x2d,   -1,   -1,   -1,   -1,   -1,   -1 },
                                   { "ROL", 0x2a,   -1, 0x26, 0x36,   -1, 0x2e, 0x3e,   -1,   -1,   -1,   -1,   -1 },
                                   { "PLP", 0x28,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1 },
                                   { "BMI",   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1, 0x30,   -1 },
@@ -168,7 +166,7 @@ bool isbin(char c)
 
 bool isnum(char c)
 {
-    return ((c >= '0' ) && ( c <= '9'));
+    return ((c >= '0') && (c <= '9'));
 }
 
 bool ishex(char c)
@@ -188,7 +186,7 @@ bool isalph(char c)
 
 bool issymstart(char c)
 {
-    return (isalph(c) || (c == '_'));
+    return (isalph(c) || (c == '_') || (c == '.'));
 }
 
 bool issymchar(char c)
@@ -245,6 +243,20 @@ uint16_t sym_get(char *symname)
     return 0;
 }
 
+bool sym_set(char *symname)
+{
+    int i;
+    for (i=0; i<num_syms; i++)
+    {
+        if (strncmp(symname, syms[i].name, MAX_SYMLEN) == 0)
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 void dump_syms(FILE *f)
 {
     int i;
@@ -252,6 +264,87 @@ void dump_syms(FILE *f)
     for (i=0; i<num_syms; i++)
     {
         fprintf(f, "%04x %s\n", syms[i].address, syms[i].name);
+    }
+}
+
+void resolve_and_remove_temporary_syms(uint8_t *outbuffer)
+{
+    int p, s, pt, r;
+    int rel;
+
+    p = 0;
+    while (p < num_pending)
+    {
+        if (pendsyms[p].name[0] != '.')
+        {
+            p++;
+            continue;
+        }
+
+        for (s=0; s<num_syms; s++)
+        {
+            if (strcmp(syms[s].name, pendsyms[p].name) == 0)
+                break;
+        }
+
+        if (s == num_syms)
+        {
+            fprintf(stderr, "Undefined symbol '%s'\n", pendsyms[p].name);
+            exit(EXIT_FAILURE);
+        }
+
+        for (pt=0; pt<MAX_PENDREF_TYPES; pt++)
+        {
+            for (r=0; r<pendsyms[p].num[pt]; r++)
+            {
+                switch (pt)
+                {
+                    case PRT_ABS16:
+                        outbuffer[pendsyms[p].ref[pt][r]] = (syms[s].address & 0xff);
+                        outbuffer[pendsyms[p].ref[pt][r]+1] = (syms[s].address >> 8);
+                        break;
+
+                    case PRT_ABS8:
+                    case PRT_LO:
+                        outbuffer[pendsyms[p].ref[pt][r]] = (syms[s].address & 0xff);
+                        break;
+
+                    case PRT_HI:
+                        outbuffer[pendsyms[p].ref[pt][r]] = (syms[s].address >> 8);
+                        break;
+
+                    case PRT_REL:
+                        rel = ((int)syms[s].address)-((int)(pendsyms[p].ref[pt][r]+1));
+                        if ((rel < -128) || (rel > 127))
+                        {
+                            fprintf(stderr, "Branch out of range\n");
+                            exit(EXIT_FAILURE);
+                        }
+
+                        outbuffer[pendsyms[p].ref[pt][r]] = rel & 0xff;
+                        break;
+                }
+            }
+        }
+
+        if (p < (num_pending-1))
+            memmove(&pendsyms[p], &pendsyms[p+1], sizeof(struct pendingref) * (num_pending - (p+1)));
+
+        num_pending--;
+    }
+
+    s = 0;
+    while (s < num_syms)
+    {
+        if (syms[s].name[0] != '.')
+        {
+            s++;
+            continue;
+        }
+
+        if (s < (num_syms-1))
+            memmove(&syms[s], &syms[s+1], sizeof(struct symbol) * (num_syms - (s+1)));
+        num_syms--;
     }
 }
 
@@ -732,7 +825,7 @@ static bool assemble_line(const char *src, int offs, uint8_t *outbuffer, uint16_
                     k = ((int)val)-((int)((*asmaddr)+1));
                     if ((k < -128) || (k > 127))
                     {
-                        fprintf(stderr, "Branch out of range: '%s'\n", isolated_line(thisline));
+                        fprintf(stderr, "Branch out of range: '%s' (address was decoded as 0x%04x)\n", isolated_line(thisline), val);
                         return false;
                     }
                 }

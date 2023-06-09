@@ -6,7 +6,7 @@
 #include <time.h>
 #include <math.h>
 
-#include "novademo.h"
+#include "noproblem.h"
 #include "asm6502.h"
 #include "rotatogreet_tables.h"
 
@@ -19,7 +19,7 @@ void write_tapdata(void)
 {
     FILE *f;
     uint8_t tap_header[] = { 0x16, 0x16, 0x16, 0x16, 0x24, 0x00, 0x00, 0x80, 0xc7, 0x00, 0x00, 0x00, 0x00, 0x00 };
-    static const char *name = "NOVADEMO";
+    static const char *name = "NOPROBLEM";
 
     tap_header[9]  = ((TAP_START + tapdata_used) >> 8);
     tap_header[10] = ((TAP_START + tapdata_used) & 0xff);

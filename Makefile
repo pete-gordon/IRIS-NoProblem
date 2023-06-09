@@ -1,7 +1,7 @@
 TARGET = mkdemo.exe
-OBJECTS = novademo.o asm6502.o
-DEMOFILE = novademo.tap
-SYMFILE = novademo.sym
+OBJECTS = noproblem.o asm6502.o
+DEMOFILE = noproblm.tap
+SYMFILE = noproblm.sym
 
 CFLAGS = -Wall -Werror -O0 -g
 LDFLAGS = -g

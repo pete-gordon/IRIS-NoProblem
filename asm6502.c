@@ -6,7 +6,7 @@
 #include <string.h>
 #include <ctype.h>
 
-#include "novademo.h"
+#include "noproblem.h"
 #include "asm6502.h"
 
 #define MAX_SYMBOLS (131072)

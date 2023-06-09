@@ -848,7 +848,7 @@ static bool assemble_line(const char *src, int offs, uint8_t *outbuffer, uint16_
             {
                 if (pref->num[preftyp] >= MAX_REFS)
                 {
-                    fprintf(stderr, "Too many pending references to '%s': '%s'\n", isolated_line(thisline), pref->name);
+                    fprintf(stderr, "Too many pending references to '%s'\n", pref->name);
                     exit(EXIT_FAILURE);
                 }
 

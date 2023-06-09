@@ -19,7 +19,7 @@ void write_tapdata(void)
 {
     FILE *f;
     uint8_t tap_header[] = { 0x16, 0x16, 0x16, 0x16, 0x24, 0x00, 0x00, 0x80, 0xc7, 0x00, 0x00, 0x00, 0x00, 0x00 };
-    static const char *name = "NOPROBLEM";
+    static const char *name = "NO PROBLEM";
 
     tap_header[9]  = ((TAP_START + tapdata_used) >> 8);
     tap_header[10] = ((TAP_START + tapdata_used) & 0xff);
@@ -342,7 +342,7 @@ struct rog_describe_bits
 
 void gen_rotatogreet(uint16_t *addr)
 {
-    char tmp[256];
+    char tmp[1024];
     int i, j, x, y, srcoffs, bit, sh, curry;
     struct rog_describe_bits rdb[NUM_ENTRIES(rotatogreet_maps)][40];
     uint16_t smcaddr;
@@ -663,7 +663,7 @@ void gen_rotatogreet(uint16_t *addr)
    
 
     {
-        const char *str = "GREETINGS:DEFENCE FORCE:DEKADENCE:DARKAGE:LOONIES:RMC CAVE DWELLERS::IO PRINT:";
+        const char *str = "GREETINGS:DEFENCE FORCE:DEKADENCE:DARKAGE:LOONIES:EPHIDRENA:RMC CAVE DWELLERS::IO PRINT:";
 
         sym_define("rotatogreet_str", *addr);
         for (i=0; str[i]; i++)
@@ -1241,6 +1241,397 @@ void gen_rotatogreet(uint16_t *addr)
         tapdata[(*addr)++] = smcaddr & 0xff;
         tapdata[(*addr)++] = smcaddr >> 8;
     }
+    resolve_and_remove_temporary_syms(tapdata);
+}
+
+void gen_noproblem(uint16_t *addr)
+{
+    FILE *f;
+    uint8_t *noprobbmp = NULL;
+    size_t noprobbmpsize = 0;
+    const char *fontmap = "N0VSYC?PRITEBLOUAM";
+    const char *strings[] = { "N0 VSYNC?", "N0 SPRITES?", "N0 SENSIBLE COLOUR", " ATTRIBUTE SYSTEM?", "N0 PROBLEM" };
+    uint8_t preshift_font[18*2*10*2]; /* 18 letters, 2 chars per row, 10 rows, *2 for both shifts */
+    int pitch, i, j, x, y, s, sx;
+    char tmp[1024];
+    uint8_t colourwipe[] = { 17, 17, 18, 17, 18, 18, 19, 19, 23, 23, 23, 23, 23, 23, 23, 19, 19, 18, 18, 17, 18, 17, 17, 16, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 };
+
+    /* Address on screen to write each string */
+    uint16_t saddr[] = { 0xa000 + 4 + 1600,
+                         0xa000 + 5 + 1600 + 40*40,
+                         0xa000 + 6 + 1600 + 40*40*2 - 8*40,
+                         0xa000 + 5 + 1600 + 40*40*2 + 8*40,
+                         0xa000 + 7 + 1600 + 40*40*3 };
+
+    /* wipe location for each string */
+    uint16_t waddr[] = { 0xa000 + 1600 - 280,
+                         0xa000 + 1600 + 40*40 - 280,
+                         0xa000 + 1600 + 40*40*2 - 8*40,
+                         0xa000 + 1600 + 40*40*3 - 280 };
+
+    f = fopen("novsync.bmp", "rb");
+    if (NULL == f)
+    {
+        fprintf(stderr, "Failed to open novsync.bmp\n");
+        exit(EXIT_FAILURE);
+    }
+
+    fseek(f, 0, SEEK_END);
+    noprobbmpsize = ftell(f);
+    fseek(f, 0, SEEK_SET);
+
+    noprobbmp = malloc(noprobbmpsize);
+    if (NULL == noprobbmp)
+    {
+        fprintf(stderr, "Out of memory\n");
+        fclose(f);
+        exit(EXIT_FAILURE);
+    }
+
+    fread(noprobbmp, noprobbmpsize, 1, f);
+    fclose(f);
+    f = NULL;
+
+    sym_define("nop_wipecols", *addr);
+    memcpy(&tapdata[*addr], colourwipe, sizeof(colourwipe));
+    (*addr) += sizeof(colourwipe);
+
+    
+
+    pitch = (((162+7)/8) + 3) & 0xfffffffc;
+    for (j=0; j<(162/9); j++)
+    {
+        for (y=0; y<10; y++)
+        {
+            preshift_font[j*40+y*2]   = (noprobbmp[(9-y)*pitch+0x3e] >> 2) & 0x3f;
+            preshift_font[j*40+y*2+1] = ((noprobbmp[(9-y)*pitch+0x3e] & 3) << 4) | ((noprobbmp[(9-y)*pitch+0x3f] >> 4) & 0x8);
+
+            preshift_font[j*40+20+y*2  ] = preshift_font[j*40+y*2] >> 3;
+            preshift_font[j*40+20+y*2+1] = ((preshift_font[j*40+y*2] & 7) << 3) | (preshift_font[j*40+y*2+1] >> 3);
+
+            preshift_font[j*40+y*2]    |= 0x40;
+            preshift_font[j*40+y*2+1]  |= 0x40;
+            preshift_font[j*40+y*2+20] |= 0x40;
+            preshift_font[j*40+y*2+21] |= 0x40;
+        }
+        for (y=0; y<10; y++)
+        {
+            for (x=0; x<pitch-1; x++)
+                noprobbmp[y*pitch+x+0x3e] = (noprobbmp[y*pitch+x+0x3f] << 1) | (noprobbmp[y*pitch+x+0x40] >> 7);
+        }
+    }
+
+    for (s=0; s<NUM_ENTRIES(strings); s++)
+    {
+        for (sx=6, i=0; strings[s][i]; sx+=9, i++)
+        {
+            for (j=0; fontmap[j]; j++)
+            {
+                if (fontmap[j] == strings[s][i])
+                    break;
+            }
+
+            if (!fontmap[j])
+                continue;
+
+            snprintf(tmp, sizeof(tmp), "nopf_chr%u_shf%u", j, sx%6);
+            if (sym_set(tmp))
+                continue;
+
+            sym_define(tmp, *addr);
+            memcpy(&tapdata[*addr], &preshift_font[(j*40)+(((sx%6)!=0) ? 20 : 0)], 20);
+            *addr += 20;
+        }
+    }
+
+    assemble("nop_pchr:\n"
+             "    LDX #9\n"
+             "    LDY #0\n"
+             ".loop:\n"
+             "    LDA (ZPTMP3),Y\n"
+             "    ORA (ZPTMP),Y\n"
+             "    STA (ZPTMP),Y\n"
+             "    INY\n"
+             "    LDA (ZPTMP3),Y\n"
+             "    ORA (ZPTMP),Y\n"
+             "    STA (ZPTMP),Y\n"
+             "    INY\n"
+             "    JSR nop_pchr_moveon\n"
+             "    BPL .loop\n"
+             "    LDX #1\n"
+             ".loop2:\n"
+             "    LDA ZPTMP5\n"
+             "    STA (ZPTMP),Y\n"
+             "    INY\n"
+             "    LDA ZPTMP6\n"
+             "    STA (ZPTMP),Y\n"
+             "    INY\n"
+             "    JSR nop_pchr_moveon\n"
+             "    BPL .loop2\n", tapdata, addr);
+
+    snprintf(tmp, sizeof(tmp),
+             ".finishpchr:\n"
+             "    LDA ZPTMP\n"
+             ".nop_pchr_smc:\n"
+             "    SEC\n"
+             "    SBC #%u\n"
+             "    STA ZPTMP\n"
+             "    LDA ZPTMP2\n"
+             "    SBC #%u\n"
+             "    STA ZPTMP2\n"
+             "    LDA ZPTMP6\n"
+             "    STA ZPTMP5\n"
+             "    RTS\n", ((38*12)-2) & 0xff, ((38*12)-2) >> 8);
+    assemble(tmp, tapdata, addr);
+
+    assemble("nop_pchr_spc:\n"
+             "    LDX #9\n"
+             "    LDY #0\n"
+             ".spcattrloop:\n"
+             "    LDA (ZPTMP),Y\n"
+             "    CMP #$40\n"
+             "    BNE .notthis1\n"
+             "    LDA #7\n"
+             "    STA (ZPTMP),Y\n"
+             "    INY\n"
+             "    BNE .notthis2\n"
+             ".notthis1:\n"
+             "    INY\n"
+             "    LDA (ZPTMP),Y\n"
+             "    CMP #$40\n"
+             "    BNE .notthis2\n"
+             "    LDA #7\n"
+             "    STA (ZPTMP),Y\n"
+             ".notthis2:\n"
+             "    INY\n"
+             "    JSR nop_pchr_moveon\n"
+             "    BPL .spcattrloop\n"
+             "    LDX #1\n"
+             "    LDY #20\n"
+             ".spcloop:\n"
+             "    LDA ZPTMP5\n"
+             "    STA (ZPTMP),Y\n"
+             "    INY\n"
+             "    LDA ZPTMP6\n"
+             "    STA (ZPTMP),Y\n"
+             "    INY\n"
+             "    JSR nop_pchr_moveon\n"
+             "    BPL .spcloop\n"
+             "    BMI .finishpchr\n", tapdata, addr);
+
+    assemble("nop_pchr_moveon:\n"
+             "    LDA ZPTMP\n"
+             "    CLC\n"
+             "    ADC #38\n"
+             "    STA ZPTMP\n"
+             "    LDA ZPTMP2\n"
+             "    ADC #0\n"
+             "    STA ZPTMP2\n"
+             "    DEX\n"
+             "    RTS\n", tapdata, addr);
+
+    sym_define("nop_waddrtab", *addr);
+    for (i=0; i<NUM_ENTRIES(waddr); i++)
+    {
+        tapdata[(*addr)++] = waddr[i] & 0xff;
+        tapdata[(*addr)++] = waddr[i] >> 8;
+    }
+
+    assemble("nop_wipein:\n"
+             "    LDA nop_waddrtab,X\n"
+             "    STA ZPNPADDRLO\n"
+             "    INX\n"
+             "    LDA nop_waddrtab,X\n"
+             "    STA ZPNPADDRHI\n"
+             "    LDX #27\n"
+             "    LDA #0\n"
+             ".clrwipetab:\n"
+             "    STA ZPWIPETAB,X\n"
+             "    DEX\n"
+             "    BPL .clrwipetab\n"
+
+             "nop_wipein_moveitalong:\n"
+             "    LDX #0\n"
+             "    LDY #27\n"
+             ".moveitloop:\n"
+             "    LDA ZPWIPETABP1,X\n"
+             "    STA ZPWIPETAB,X\n"
+             "    LDA ZPWIPETABM1,Y\n"
+             "    STA ZPWIPETAB,Y\n"
+             "    INX\n"
+             "    DEY\n"
+             "    CPY #14\n"
+             "    BNE .moveitloop\n"
+             "    LDX ZPNPCOUNT\n"
+             "    LDA nop_wipecols,X\n"
+             "    STA ZPWIPETABM1,Y\n"
+             "    STA ZPWIPETAB,Y\n"
+             "    INX\n"
+             "    STX ZPNPCOUNT\n"
+             "    TXA\n"
+             "    CMP ZPNPFIN\n"
+             "    BNE .notdone\n"
+             "    RTS\n"
+             ".notdone:\n"
+             "    LDA ZPNPADDRLO\n"
+             "    STA ZPNPTMP1\n"
+             "    LDA ZPNPADDRHI\n"
+             "    STA ZPNPTMP2\n"
+             "    LDX #0\n"
+             "    LDY #0\n"
+             ".copywipe:\n"
+             "    LDA ZPWIPETAB,X\n"
+             "    STA (ZPNPTMP1),Y\n"
+             "    LDA ZPNPTMP1\n"
+             "    CLC\n"
+             "    ADC #40\n"
+             "    STA ZPNPTMP1\n"
+             "    LDA ZPNPTMP2\n"
+             "    ADC #0\n"
+             "    STA ZPNPTMP2\n"
+             "    INX\n"
+             "    CPX #28\n"
+             "    BNE .copywipe\n"
+             "    LDY #8\n"
+             ".delay2:\n"
+             "    LDX #0\n"
+             ".delay:\n"
+             "    DEX\n"
+             "    BNE .delay\n"
+             "    DEY\n"
+             "    BNE .delay2\n"
+             "    JMP nop_wipein_moveitalong\n", tapdata, addr);
+
+    for (s=0; s<NUM_ENTRIES(strings); s++)
+    {
+        if (s != 3)
+        {
+            int reals = (s<3) ? s : (s-1);
+
+            snprintf(tmp, sizeof(tmp),
+                "nop_printstr%u:\n"
+                "    LDA #14\n"
+                "    STA ZPNPFIN\n"
+                "    LDA #0\n"
+                "    STA ZPNPCOUNT\n"
+                "    LDX #%u\n"
+                "    JSR nop_wipein\n", reals, reals*2);
+            assemble(tmp, tapdata, addr);
+        }
+        assemble("    LDA #$40\n"
+                 "    STA ZPTMP5\n"
+                 "    STA ZPTMP6\n", tapdata, addr);
+        snprintf(tmp, sizeof(tmp), 
+            "    LDA #$%x\n"
+            "    STA ZPTMP\n"
+            "    LDA #$%x\n"
+            "    STA ZPTMP2\n", saddr[s]&0xff, saddr[s]>>8);
+        assemble(tmp, tapdata, addr);
+        for (sx=6, i=0; strings[s][i]; sx+=9, i++)
+        {
+            for (j=0; fontmap[j]; j++)
+            {
+                if (fontmap[j] == strings[s][i])
+                    break;
+            }
+
+            if (!fontmap[j])
+            {
+                /* Move on 9 px */
+                snprintf(tmp, sizeof(tmp),
+                    "    LDA #%u\n"
+                    "    STA .nop_pchr_smc\n"
+                    "    JSR nop_pchr_spc\n", ((sx%6)==0) ? 0x18 : 0x38);
+                assemble(tmp, tapdata, addr);
+                continue;
+            }
+
+            if (j==1)
+            {
+                assemble("    LDA #$47\n"
+                         "    STA ZPTMP5\n"
+                         "    LDA #$7f\n"
+                         "    STA ZPTMP6\n", tapdata, addr);
+            }
+
+            if ((strings[s][i+1] == 0) && ((sx%6)==0))
+            {
+                assemble("    LDA #$78\n"
+                         "    STA ZPTMP6\n", tapdata, addr);
+            }
+
+            snprintf(tmp, sizeof(tmp),
+                "    LDA #>nopf_chr%u_shf%u\n"
+                "    STA ZPTMP3\n"
+                "    LDA #<nopf_chr%u_shf%u\n"
+                "    STA ZPTMP4\n"
+                "    LDA #%u\n"
+                "    STA .nop_pchr_smc\n"
+                "    JSR nop_pchr\n", j, sx%6, j, sx%6, ((sx%6)==0) ? 0x18 : 0x38);
+            assemble(tmp, tapdata, addr);
+        }
+
+        if (s != 2)
+        {
+            snprintf(tmp, sizeof(tmp),
+                "    LDA #%u\n"
+                "    STA ZPNPFIN\n"
+                "    JSR nop_wipein_moveitalong\n"
+                "    JSR nop_waitabit\n"
+                "    JMP nop_waitabit\n", sizeof(colourwipe));
+            assemble(tmp, tapdata, addr);
+        }
+    }
+
+    resolve_and_remove_temporary_syms(tapdata);
+
+    assemble("nop_waitabit:\n"
+             "    LDY #0\n"
+             ".delay1:\n"
+             "    LDX #0\n"
+             ".delay2:\n"
+             "    NOP\n"
+             "    NOP\n"
+             "    NOP\n"
+             "    DEX\n"
+             "    BNE .delay2\n"
+             "    DEY\n"
+             "    BNE .delay1\n"
+             "    RTS\n", tapdata, addr);
+
+    assemble("noproblem:\n"
+             "    LDA #0\n"
+             "    STA ZPTMP\n"
+             "    LDA #$A0\n"
+             "    STA ZPTMP2\n"
+             "    LDX #200\n"
+             ".loop1:\n"
+             "    LDA #$40\n"
+             "    LDY #39\n"
+             ".loop2:\n"
+             "    STA (ZPTMP),Y\n"
+             "    DEY\n"
+             "    BNE .loop2\n"
+             "    LDA #7\n"
+             "    STA (ZPTMP),Y\n"
+             "    LDA ZPTMP\n"
+             "    CLC\n"
+             "    ADC #40\n"
+             "    STA ZPTMP\n"
+             "    LDA ZPTMP2\n"
+             "    ADC #0\n"
+             "    STA ZPTMP2\n"
+             "    DEX\n"
+             "    BNE .loop1\n"
+             "    JSR nop_waitabit\n"
+             "    JSR nop_printstr0\n"
+             "    JSR nop_printstr1\n"
+             "    JSR nop_printstr2\n"
+             "    JSR nop_printstr3\n"
+             "    JSR nop_waitabit\n"
+             "    JSR nop_waitabit\n"
+             "    RTS\n", tapdata, addr);
+
 }
 
 int main(int argc, const char *argv[])
@@ -1249,8 +1640,11 @@ int main(int argc, const char *argv[])
     uint16_t addr = TAP_START;
 
     srand(time(NULL));
-    sym_define("ZPWIPETAB",    0); /* 28 */
-    sym_define("ZPWIPEPOS",   28); /* 28 */
+    /* zero page defines */
+    sym_define("ZPWIPEPOS",    0); /* 28 */
+    sym_define("ZPWIPETABM1" ,27);
+    sym_define("ZPWIPETAB",   28); /* 28 */
+    sym_define("ZPWIPETABP1" ,29);
     sym_define("ZPTMP",       28*2);
     sym_define("ZPTMP2",      28*2+1);
     sym_define("ZPTMP3",      28*2+2);
@@ -1276,17 +1670,25 @@ int main(int argc, const char *argv[])
     sym_define("ZPROG10PHI",  15);
     sym_define("ZPROG10PCT",  16);
     sym_define("ZPROGMLEND",  17);
+    sym_define("ZPNPADDRLO",  18);
+    sym_define("ZPNPADDRHI",  19);
+    sym_define("ZPNPCOUNT",   20);
+    sym_define("ZPNPFIN",     21);
+    sym_define("ZPNPTMP1",    22);
+    sym_define("ZPNPTMP2",    23);
 
+    /* Demo entry point */
     assemble("demostart:\n"
              "    SEI\n"
-             "    LDA #19\n"
+             "    LDA #19\n"  /* yellow paper */
              "    STA ZPTMP5\n"
              "    JSR scrwipe\n"
-             "    LDA #16\n"
+             "    LDA #16\n"  /* black paper */
              "    STA ZPTMP5\n"
              "    JSR scrwipe\n"
              "    LDA #30\n" /* switch to hires */
              "    STA $BB80\n"
+             "    JSR noproblem\n"
              "    JSR stripewobbler\n"
              "    JSR rotatogreet\n"
              "demoend:\n"
@@ -1295,8 +1697,9 @@ int main(int argc, const char *argv[])
     gen_scrwipe(&addr);
     gen_stripewobbler(&addr);
     gen_rotatogreet(&addr);
+    gen_noproblem(&addr);
 
-    /* Define a handy table for text screen access */
+    /* Define a handy table for text screen access (currently only used by scrwipe)*/
     sym_define("scrtab", addr);
     resolve_pending(tapdata, false);
 

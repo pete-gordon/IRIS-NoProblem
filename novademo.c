@@ -264,7 +264,7 @@ void gen_stripewobbler(uint16_t *addr)
              "    SBC #11\n"
              "    STA ZPSWFRAME2\n"
              "    STA ZPSINPOS2\n"
-             "    LDA #0\n"
+             "    LDA #0\n" 
              "    STA ZPTMP\n"
              "    LDA #$A0\n"
              "    STA ZPTMP2\n"
@@ -442,6 +442,7 @@ void gen_rotatogreet(uint16_t *addr)
              "    STA $A000\n"
              "    LDY #0\n"
              "    STY $A001\n"
+             "    STY ZPROGMLEND\n"
 
              "    LDA #$A0\n"
              "    STA ZPTMP2\n"
@@ -576,7 +577,9 @@ void gen_rotatogreet(uint16_t *addr)
     assemble(tmp, tapdata, addr);
 
     assemble("    LDY #0\n"
-             "testloop:\n"
+             "rotatogreet_mainloop:\n"
+             "    LDA ZPROGMLEND\n"
+             "    BNE .rollout\n"
              "    LDX rotatogreet_frametab,Y\n"
              "    LDA rotatogreet_frouts,X\n"
              "    STA rotatogreet_smc_lo\n"
@@ -587,19 +590,45 @@ void gen_rotatogreet(uint16_t *addr)
              "    PHA\n"
              ".rog_smc_pos:\n"
              "    JSR rotatogreet_drawframe0\n"
+             ".rog_smc_pos2:\n"
              "    JSR rotatogreet_scrollit\n"
              "    PLA\n"
              "    TAY\n"
              "    INY\n"
              "    CPY #96\n"
-             "    BNE testloop\n"
+             "    BNE rotatogreet_mainloop\n"
              "    LDY #0\n"
-             "    JMP testloop\n"
-             "    RTS\n", tapdata, addr);
+             "    JMP rotatogreet_mainloop\n"
+             ".rollout:\n"
+             "    LDX rotatogreet_frametab,Y\n"
+             ".rolloutloop:\n"
+             "    LDA rotatogreet_frouts,X\n"
+             "    STA rotatogreet_smc3_lo\n"
+             "    INX\n"
+             "    LDA rotatogreet_frouts,X\n"
+             "    STA rotatogreet_smc3_hi\n"
+             "    INX\n"
+             "    TXA\n"
+             "    AND #15\n"
+             "    PHA\n"
+             ".rog_smc_pos3:\n"
+             "    JSR rotatogreet_drawframe0\n"
+             "    JSR rotatogreet_rollaway\n"
+             "    PLA\n"
+             "    TAX\n"
+             "    JMP .rolloutloop\n", tapdata, addr);
 
     smcaddr = sym_get(".rog_smc_pos");
     sym_define("rotatogreet_smc_lo", smcaddr+1);
     sym_define("rotatogreet_smc_hi", smcaddr+2);
+
+    smcaddr = sym_get(".rog_smc_pos2");
+    sym_define("rotatogreet_smc2_lo", smcaddr+1);
+    sym_define("rotatogreet_smc2_hi", smcaddr+2);
+
+    smcaddr = sym_get(".rog_smc_pos3");
+    sym_define("rotatogreet_smc3_lo", smcaddr+1);
+    sym_define("rotatogreet_smc3_hi", smcaddr+2);
 
     {
         int offs=0;
@@ -634,7 +663,7 @@ void gen_rotatogreet(uint16_t *addr)
    
 
     {
-        const char *str = "GREETINGS:DEFENCE FORCE:DEKADENCE:DARKAGE:LOONIES:RMC CAVE DWELLERS";
+        const char *str = "GREETINGS:DEFENCE FORCE:DEKADENCE:DARKAGE:LOONIES:RMC CAVE DWELLERS::IO PRINT:";
 
         sym_define("rotatogreet_str", *addr);
         for (i=0; str[i]; i++)
@@ -677,11 +706,13 @@ void gen_rotatogreet(uint16_t *addr)
              "    CMP #$C0\n"
              "    BNE rogscroll_isspace\n"
 
-             "    LDY #0\n"
-             "    STY ZPROGSCPOS\n"
-             "    STY ZPROGSCHLF\n"
-             "    BEQ rogscroll_nomoveon\n"
-             
+             "    STX ZPROG10PLO\n"
+             "    LDA #>rotatogreet_10print\n"
+             "    STA rotatogreet_smc2_lo\n"
+             "    LDA #<rotatogreet_10print\n"
+             "    STA rotatogreet_smc2_hi\n"
+             "    RTS\n"
+
              "rogscroll_isspace:\n"
              "    CMP #$FF\n"
              "    BEQ rogscroll_isspace2\n"
@@ -757,8 +788,119 @@ void gen_rotatogreet(uint16_t *addr)
              ".done:\n"
              "    RTS\n", tapdata, addr);
 
+    assemble("rotatogreet_10print:\n"
+             "    LDA ZPROG10PLO\n"
+             "    BNE .alreadysetup\n"
+             "    LDA #0\n"
+             "    STA ZPROG10PCT\n"
+             "    LDA #<rotatogreet_texture\n"
+             "    STA ZPROG10PHI\n"
+             "    LDA #>rotatogreet_texture\n"
+             "    STA ZPROG10PLO\n"
+
+             "    LDY #5\n"
+             "    LDA #$30\n"
+             ".genloop1:\n"
+             "    STA ZPROGFSLSH,Y\n"
+             "    LSR\n"
+             "    DEY\n"
+             "    BPL .genloop1\n"
+             "    LDY #5\n"
+             "    LDA #3\n"
+             ".genloop2:\n"
+             "    STA ZPROGBSLSH,Y\n"
+             "    ASL\n"
+             "    DEY\n"
+             "    BPL .genloop2\n"
+
+             ".alreadysetup:\n"
+             "    LDA $0304\n"
+             "    EOR ZPROG10PCT\n"
+             "    AND #2\n"
+             "    BEQ .dofrwrd\n"
+             "    LDA #>ZPROGBSLSH\n"
+             "    BNE .pickedslash\n"
+             ".dofrwrd:\n"
+             "    LDA #>ZPROGFSLSH\n"
+             ".pickedslash:\n"
+             "    STA .10p_smc\n"
+             "    LDA ZPROG10PLO\n"
+             "    CLC\n"
+             "    ADC ZPROG10PCT\n"
+             "    STA ZPTMP\n"
+             "    LDA ZPROG10PHI\n"
+             "    ADC #0\n"
+             "    STA ZPTMP2\n"
+             "    LDY #0\n"
+             "    LDX #0\n"
+             ".10printloop:\n"
+             "    LDA ZPROGFSLSH,X\n"
+             "    STA (ZPTMP),Y\n"
+             "    LDA ZPTMP\n"
+             "    ADC #38\n"
+             "    STA ZPTMP\n"
+             "    LDA ZPTMP2\n"
+             "    ADC #0\n"
+             "    STA ZPTMP2\n"
+             "    INX\n"
+             "    CPX #6\n"
+             "    BNE .10printloop\n"
+             "    LDY ZPROG10PCT\n"
+             "    INY\n"
+             "    CPY #38\n"
+             "    BEQ .newrow\n"
+             "    STY ZPROG10PCT\n"
+             "    RTS\n"
+             ".newrow:\n"
+             "    LDA #0\n"
+             "    STA ZPROG10PCT\n"
+             "    LDA ZPROG10PLO\n"
+             "    CLC\n"
+             "    ADC #228\n"
+             "    STA ZPROG10PLO\n"
+             "    LDA ZPROG10PHI\n"
+             "    ADC #0\n"
+             "    STA ZPROG10PHI\n", tapdata, addr);
+    smcaddr = sym_get("rotatogreet_texture") + 228*6;
+    snprintf(tmp, sizeof(tmp),
+        "    LDA ZPROG10PLO\n"
+        "    EOR ZPROG10PHI\n"
+        "    CMP #%u\n"
+        "    BNE .keepgoing\n"
+        "    LDA #1\n"
+        "    STA ZPROGMLEND\n"
+        ".keepgoing:\n"
+        "    RTS\n", (smcaddr >> 8) ^ (smcaddr&0xff));
+    assemble(tmp, tapdata, addr);
+
+    assemble("rotatogreet_rollaway:\n"
+             "    LDX #46\n"
+             "    LDY #0\n"
+             ".rollaway:\n"
+             "    CPX #3\n"
+             "    BCS .doneclr\n"
+             "    LDA rog_linetab_lo,X\n"
+             "    STA ZPTMP\n"
+             "    LDA rog_linetab_hi,X\n"
+             "    STA ZPTMP2\n"
+             "    LDA #0\n"
+             "    STA (ZPTMP),y\n"
+             ".doneclr:\n"
+             "    CLC\n"
+             "    LDA rog_linetab_lo,X\n"
+             "    ADC #$78\n"
+             "    STA rog_linetab_lo,X\n"
+             "    LDA rog_linetab_hi,X\n"
+             "    ADC #0\n"
+             "    STA rog_linetab_hi,X\n"
+             "    DEX\n"
+             "    BPL .rollaway\n"
+             "    RTS\n", tapdata, addr);
+
     smcaddr = sym_get(".rogscroll_smc1");
     sym_define(".rogscroll_smc2", smcaddr+1);
+    smcaddr = sym_get(".10printloop");
+    sym_define(".10p_smc", smcaddr+1);
 
     assemble("rotatogreet_writebyte:\n"
              "    ORA #$40\n"
@@ -775,6 +917,16 @@ void gen_rotatogreet(uint16_t *addr)
              "    TXA\n"
              "    ADC rog_smc1_hi\n"
              "    STA rog_smc1_hi\n"
+             "    CMP #$BF\n"
+             "    BNE .noclip\n"
+             "    LDA rog_smc1_lo\n"
+             "    CMP #$40\n"
+             "    BCC .noclip\n"
+             "    LDA #$E0\n"
+             "    STA rog_smc1_lo\n"
+             "    LDA #$BF\n"
+             "    STA rog_smc1_hi\n"
+             ".noclip:\n"
              "    RTS\n", tapdata, addr);
 
     for (i=0; i<NUM_ENTRIES(rotatogreet_maps); i++)
@@ -1107,6 +1259,8 @@ int main(int argc, const char *argv[])
     sym_define("ZPTMP6",      28*2+5);
     sym_define("ZPROGLFRML",  28*2+6); /* 47 */
     sym_define("ZPROGLFRMH",  28*2+6 + 47); /* 47 */
+    sym_define("ZPROGFSLSH",  28*2+6); /* re-use the above for the forward slash graphic */
+    sym_define("ZPROGBSLSH",  28*2+12); /* re-use the above for the back slash graphic */
     sym_define("ZPSWFRAME",    3);
     sym_define("ZPSWFRAME2",   4);
     sym_define("ZPSINPOS1",    5);
@@ -1118,6 +1272,10 @@ int main(int argc, const char *argv[])
     sym_define("ZPROGSCPOS",  11);
     sym_define("ZPROGSCHLF",  12);
     sym_define("ZPROGSPCCT",  13);
+    sym_define("ZPROG10PLO",  14);
+    sym_define("ZPROG10PHI",  15);
+    sym_define("ZPROG10PCT",  16);
+    sym_define("ZPROGMLEND",  17);
 
     assemble("demostart:\n"
              "    SEI\n"

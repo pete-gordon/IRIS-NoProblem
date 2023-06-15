@@ -9,6 +9,7 @@
 #include "noproblem.h"
 #include "asm6502.h"
 #include "rotatogreet_tables.h"
+#include "bouncy_tables.h"
 
 uint8_t tapdata[65536];
 uint32_t tapdata_used = 0;
@@ -264,10 +265,7 @@ void gen_stripewobbler(uint16_t *addr)
              "    SBC #11\n"
              "    STA ZPSWFRAME2\n"
              "    STA ZPSINPOS2\n"
-             "    LDA #0\n" 
-             "    STA ZPTMP\n"
-             "    LDA #$A0\n"
-             "    STA ZPTMP2\n"
+             "    JSR zptmp_set_to_a000\n"
              "    LDX #200\n"
              "    CLC\n" // Nothing in the loop below should set C, so clear it now (once per frame), and avoid 2 CLCs per scanline later.
              "stripewobbler_drawloop:\n"
@@ -456,13 +454,7 @@ void gen_rotatogreet(uint16_t *addr)
              "    STA (ZPTMP),Y\n"
              "    DEY\n"
              "    BPL .rogclrit\n"
-             "    LDA ZPTMP\n"
-             "    CLC\n"
-             "    ADC #40\n"
-             "    STA ZPTMP\n"
-             "    LDA ZPTMP2\n"
-             "    ADC #0\n"
-             "    STA ZPTMP2\n"
+             "    JSR zptmp_add40\n"
              "    DEX\n"
              "    BNE rog_clrscr\n"
 
@@ -1482,13 +1474,8 @@ void gen_noproblem(uint16_t *addr)
              ".copywipe:\n"
              "    LDA ZPWIPETAB,X\n"
              "    STA (ZPNPTMP1),Y\n"
-             "    LDA ZPNPTMP1\n"
-             "    CLC\n"
-             "    ADC #40\n"
-             "    STA ZPNPTMP1\n"
-             "    LDA ZPNPTMP2\n"
-             "    ADC #0\n"
-             "    STA ZPNPTMP2\n"
+             "    LDA #>ZPNPTMP1\n"
+             "    JSR zpany_add40\n"
              "    INX\n"
              "    CPX #28\n"
              "    BNE .copywipe\n"
@@ -1600,10 +1587,7 @@ void gen_noproblem(uint16_t *addr)
              "    RTS\n", tapdata, addr);
 
     assemble("noproblem:\n"
-             "    LDA #0\n"
-             "    STA ZPTMP\n"
-             "    LDA #$A0\n"
-             "    STA ZPTMP2\n"
+             "    JSR zptmp_set_to_a000\n"
              "    LDX #200\n"
              ".loop1:\n"
              "    LDA #$40\n"
@@ -1614,13 +1598,7 @@ void gen_noproblem(uint16_t *addr)
              "    BNE .loop2\n"
              "    LDA #7\n"
              "    STA (ZPTMP),Y\n"
-             "    LDA ZPTMP\n"
-             "    CLC\n"
-             "    ADC #40\n"
-             "    STA ZPTMP\n"
-             "    LDA ZPTMP2\n"
-             "    ADC #0\n"
-             "    STA ZPTMP2\n"
+             "    JSR zptmp_add40\n"
              "    DEX\n"
              "    BNE .loop1\n"
              "    JSR nop_waitabit\n"
@@ -1629,10 +1607,376 @@ void gen_noproblem(uint16_t *addr)
              "    JSR nop_printstr2\n"
              "    JSR nop_printstr3\n"
              "    JSR nop_waitabit\n"
-             "    JSR nop_waitabit\n"
+             "    JMP nop_waitabit\n", tapdata, addr);
+    resolve_and_remove_temporary_syms(tapdata);
+}
+
+void gen_bouncy(uint16_t *addr)
+{
+    int i;
+    uint16_t ballbot;
+    char tmp[1024];
+
+    sym_define("balltab", *addr);
+    memcpy(&tapdata[*addr], balltab, sizeof(balltab));
+    (*addr) += sizeof(balltab);
+
+    sym_define("ballrows", *addr);
+    for (i=0; i<BALL_H; i++)
+        tapdata[(*addr)++] = ballidx[i] * 8;
+
+    ballbot = (BALL_H-1) * 40;
+
+    assemble("bouncy_draw_shadow:\n"
+             "    LDA #$C8\n"
+             "    STA bdraw_smc\n"
+             "    LDA ZPBLYPOS\n"
+             "    LSR\n"
+             "    LSR\n"
+             "    STA ZPBLLSTSY\n"
+             "    LDA #200\n"
+             "    SEC\n"
+             "    SBC ZPBLLSTSY\n"
+             "    CLC\n"
+             "    STA ZPTMP\n"
+             "    LDA #0\n"
+             "    STA ZPTMP2\n"
+             "    LDX #3\n"
+             ".loopo1:\n"
+             "    ROL ZPTMP\n"
+             "    ROL ZPTMP2\n"
+             "    DEX\n"
+             "    BNE .loopo1\n"
+             "    LDA ZPTMP\n"
+             "    STA ZPTMP5\n"
+             "    LDA ZPTMP2\n"
+             "    ADC #$A0\n"
+             "    STA ZPTMP6\n"
+             "    LDX #2\n"
+             ".loopo2:\n"
+             "    ROL ZPTMP\n"
+             "    ROL ZPTMP2\n"
+             "    DEX\n"
+             "    BNE .loopo2\n"
+             "    LDA ZPTMP\n"
+             "    ADC ZPTMP5\n"
+             "    STA ZPTMP\n"
+             "    LDA ZPTMP2\n"
+             "    ADC ZPTMP6\n"
+             "    STA ZPTMP2\n", tapdata, addr);
+
+    snprintf(tmp, sizeof(tmp),
+             "    LDA ZPBLXPOS\n"
+             "    LSR\n"
+             "    STA ZPTMP5\n"
+             "    LDA ZPTMP\n"
+             "    CLC\n"
+             "    ADC #%u\n"
+             "    STA ZPTMP3\n"
+             "    LDA ZPTMP2\n"
+             "    ADC #%u\n"
+             "    STA ZPTMP4\n"
+             "    JMP bdraw_continue\n", ballbot&0xff, ballbot>>8);
+    assemble(tmp, tapdata, addr);
+
+    resolve_and_remove_temporary_syms(tapdata);
+
+    ballbot = (BALL_H*2-1) * 40;
+
+    assemble("bouncy_draw:\n"
+             "    LDA #$EA\n"
+             "    STA bdraw_smc\n"
+             "    LDA ZPBLYPOS\n"
+             "    LSR\n"
+             "    STA ZPBLLASTY\n"
+             "    CLC\n"
+             "    STA ZPTMP\n"
+             "    LDA #0\n"
+             "    STA ZPTMP2\n"
+             "    LDX #3\n"
+             ".loopo1:\n"
+             "    ROL ZPTMP\n"
+             "    ROL ZPTMP2\n"
+             "    DEX\n"
+             "    BNE .loopo1\n"
+             "    LDA ZPTMP\n"
+             "    STA ZPTMP5\n"
+             "    LDA ZPTMP2\n"
+             "    ADC #$A0\n"
+             "    STA ZPTMP6\n"
+             "    LDX #2\n"
+             ".loopo2:\n"
+             "    ROL ZPTMP\n"
+             "    ROL ZPTMP2\n"
+             "    DEX\n"
+             "    BNE .loopo2\n"
+             "    LDA ZPTMP\n"
+             "    ADC ZPTMP5\n"
+             "    STA ZPTMP\n"
+             "    LDA ZPTMP2\n"
+             "    ADC ZPTMP6\n"
+             "    STA ZPTMP2\n", tapdata, addr);
+
+    snprintf(tmp, sizeof(tmp),
+             "    LDA ZPBLXPOS\n"
+             "    LSR\n"
+             "    STA ZPTMP5\n"
+             "    LDA ZPTMP\n"
+             "    CLC\n"
+             "    ADC #%u\n"
+             "    STA ZPTMP3\n"
+             "    LDA ZPTMP2\n"
+             "    ADC #%u\n"
+             "    STA ZPTMP4\n", ballbot&0xff, ballbot>>8);
+    assemble(tmp, tapdata, addr);
+    assemble("    LDA ZPTMP5\n"
+             "    ADC ZPTMP\n"
+             "    STA ZPBLLASTLO\n"
+             "    LDA ZPTMP2\n"
+             "    ADC #0\n"
+             "    STA ZPBLLASTHI\n"
+
+             "bdraw_continue:\n"
+             "    LDA ZPBLXPOS\n"
+             "    AND #1\n"
+             "    ASL\n"
+             "    ASL\n" // C = 0
+             "    STA ZPBLTABOFF\n"
+
+             "    LDY #0\n"
+             "bouncy_drawloop:\n"
+             "    STY ZPBLTABPOS\n"
+             "    LDA #>ZPTMP\n"
+             "    JSR cmp_screenend\n"
+             "    BCS .clipit\n"
+             "    LDA #>ZPTMP3\n"
+             "    JSR cmp_screenend\n"
+             "    BCC .noclip_bh\n"
+             "    LDA #$60\n"
+             "    BNE .clipcrapdone\n"
+             ".noclip_bh:\n"
+             "    LDA #$91\n"
+             ".clipcrapdone:\n"
+             "    STA bdraw_plotit_smc\n"
+             "    LDA ballrows,Y\n"
+             "    CLC\n"
+             "    ADC ZPBLTABOFF\n"
+             "    TAX\n"
+             "    LDA balltab,X\n"
+             "    ADC ZPTMP5\n"  // C should always be 0 here, no need to CLC
+             "    TAY\n"
+             "    INX\n"
+             "    LDA #$40\n"
+             "    JSR bdraw_plotit\n"
+             "    INY\n"
+             "    LDA balltab,X\n"
+             "    JSR bdraw_plotit\n"
+             "    INY\n"
+             "    INX\n"
+             "    STX ZPBLROWDAT\n"
+             "    LDA balltab,X\n"
+             "    BEQ .skipmid\n"
+             "    TAX\n"
+             "    LDA #$7f\n"
+             "bouncy_drawrow:\n"
+             "    JSR bdraw_plotit\n"
+             "    INY\n"
+             "    DEX\n"
+             "    BNE bouncy_drawrow\n"
+             ".skipmid:\n"
+             "    LDX ZPBLROWDAT\n"
+             "    INX\n"
+             "    LDA balltab,X\n"
+             "    JSR bdraw_plotit\n"
+             "    INY\n"
+             "    LDA #$40\n"
+             "    JSR bdraw_plotit\n"
+             ".clipit:\n"
+             "    LDA #>ZPTMP3\n"
+             "    JSR zpany_sub40\n"
+             "    JSR zptmp_add40\n"
+             "    LDY ZPBLTABPOS\n"
+             "bdraw_smc:\n"
+             "    NOP\n"
+             "    INY\n", tapdata, addr);
+    snprintf(tmp, sizeof(tmp),
+             "    CPY #%u\n"
+             "    BNE bouncy_drawloop\n"
+             "    RTS\n", BALL_H);
+             
+    assemble(tmp, tapdata, addr);
+    assemble("bdraw_plotit:\n"
+             "    STA (ZPTMP),Y\n"
+             "bdraw_plotit_smc:\n"
+             "    STA (ZPTMP3),Y\n"
              "    RTS\n", tapdata, addr);
 
+    assemble("bouncy:\n"
+             "    LDA #0\n"
+             "    STA ZPBLXPOS\n"
+             "    STA ZPBLYPOS\n"
+             "    JSR zptmp_set_to_a000\n"
+             "    LDX #120\n"
+             "    LDA #7\n"
+             "    STA ZPTMP3\n"
+             "    LDA #16\n"
+             "    STA ZPTMP4\n"
+             "    JSR bouncy_clr_part\n"
+             "    LDX #40\n"
+             "    LDA #20\n"
+             "    STA ZPTMP4\n"
+             "    JSR bouncy_clr_part\n"
+             "    LDX #40\n"
+             "    LDA #6\n"
+             "    STA ZPTMP3\n"
+             "    JSR bouncy_clr_part\n"
+
+             "    LDA #$78\n"
+             "    STA ZPTMP\n"
+             "    LDA #$A0\n"
+             "    STA ZPTMP2\n"
+
+             "    LDA #6\n"
+             "    STA ZPBLXPOS\n"
+             "    LDA #10\n"
+             "    STA ZPBLYPOS\n"
+             "bouncy_loop:\n"
+             "    JSR bouncy_draw\n"
+             "    JSR bouncy_draw_shadow\n", tapdata, addr);
+
+    snprintf(tmp, sizeof(tmp),
+             "    LDA ZPBLYPOS\n"
+             "    CLC\n"
+             "    ADC ZPBLDY\n"
+             "    STA ZPBLYPOS\n"
+             "    CMP #%u\n"
+             "    BCC .nobounce\n"
+             "    LDA #%u\n"
+             "    STA ZPBLYPOS\n"
+             "    LDA #$EE\n"
+             "    STA ZPBLDY\n"
+             ".nobounce:\n"
+             "    LDY ZPBLDY\n"
+             "    CPY #10\n"
+             "    BEQ .tvel\n"
+             "    INY\n"
+             "    STY ZPBLDY\n"
+             ".tvel:\n", (160-BALL_H*2)*2, (160-BALL_H*2)*2);
+    assemble(tmp, tapdata, addr);
+
+    assemble("    LDA ZPBLYPOS\n"
+             "    LDY ZPBLXPOS\n"
+             "    LDA ZPBLDX\n"
+             "    BNE .goleft\n"
+             "    INY\n"
+             "    INY\n"
+             ".goleft:\n"
+             "    DEY\n"
+             "    STY ZPBLXPOS\n"
+             "    CPY #4\n"
+             "    BEQ .pongit\n"
+             "    CPY #55\n"
+             "    BNE .dontpongit\n"
+             ".pongit:\n"
+             "    LDA ZPBLDX\n"
+             "    EOR #1\n"
+             "    STA ZPBLDX\n"
+             ".dontpongit:\n"
+             "    LDY #6\n"
+             "bouncy_delayo:\n"
+             "    LDX #0\n"
+             "bouncy_delay:\n"
+             "    DEX\n"
+             "    BNE bouncy_delay\n"
+             "    DEY\n"
+             "    BNE bouncy_delayo\n", tapdata, addr);
+
+    snprintf(tmp, sizeof(tmp),
+             "bpme:\n"
+             "    LDA ZPBLYPOS\n"
+             "    LSR\n"
+             "    STA ZPTMP3\n"
+             "    CMP ZPBLLASTY\n"
+             "    BEQ bouncy_loop\n"
+             "    BCS .clrtop\n"
+             
+             "    LDA ZPBLLASTLO\n"
+             "    CLC\n"
+             "    ADC #%u\n"
+             "    STA ZPTMP\n"
+             "    LDA ZPBLLASTHI\n"
+             "    ADC #%u\n"
+             "    STA ZPTMP2\n", (BALL_H*80)&0xff, (BALL_H*80)>>8);
+    assemble(tmp, tapdata, addr);
+    assemble("    LDA ZPBLLASTY\n"
+             "    SEC\n"
+             "    SBC ZPTMP3\n"
+             "    ADC #4\n"
+             "    TAX\n"
+             ".clearrows_bot:\n"
+             "    LDA #>ZPTMP\n"
+             "    JSR zpany_sub40\n", tapdata, addr);
+    snprintf(tmp, sizeof(tmp),
+             "    LDA #$40\n"
+             "    LDY #%u\n", (((BALL_W*2)+5)/6)+1);
+    assemble(tmp, tapdata, addr);
+    assemble(".clearrow_bot:\n"
+             "    STA (ZPTMP),Y\n"
+             "    DEY\n"
+             "    BPL .clearrow_bot\n"
+             "    DEX\n"
+             "    BNE .clearrows_bot\n"
+             "    JMP bouncy_loop\n"
+             ".clrtop:\n"
+             "    LDA ZPBLLASTLO\n"
+             "    STA ZPTMP\n"
+             "    LDA ZPBLLASTHI\n"
+             "    STA ZPTMP2\n"
+
+             "    LDA ZPTMP3\n"
+             "    SEC\n"
+             "    SBC ZPBLLASTY\n"
+             "    ADC #4\n"
+             "    TAX\n", tapdata, addr);
+
+    snprintf(tmp, sizeof(tmp),
+             ".clearrows:\n"
+             "    LDA #$40\n"
+             "    LDY #%u\n"
+             ".clearrow:\n"
+             "    STA (ZPTMP),Y\n"
+             "    DEY\n"
+             "    BPL .clearrow\n"
+             "    JSR zptmp_add40\n"
+             "    DEX\n"
+             "    BNE .clearrows\n", (((BALL_W*2)+5)/6)+1);
+    assemble(tmp, tapdata, addr);
+
+    assemble("    JMP bouncy_loop\n", tapdata, addr);
+
+    assemble("bouncy_clr_part:\n"
+             "    LDY #0\n"
+             "    LDA ZPTMP3\n"
+             "    STA (ZPTMP),Y\n"
+             "    INY\n"
+             "    LDA ZPTMP4\n"
+             "    STA (ZPTMP),Y\n"
+             "    INY\n"
+             "    LDA #$40\n"
+             ".bouncy_clr2:\n"
+             "    STA (ZPTMP),Y\n"
+             "    INY\n"
+             "    CPY #40\n"
+             "    BNE .bouncy_clr2\n"
+             "    JSR zptmp_add40\n"
+             "    DEX\n"
+             "    BNE bouncy_clr_part\n"
+             "    RTS\n", tapdata, addr);
+
+
+    resolve_and_remove_temporary_syms(tapdata);
 }
+
 
 int main(int argc, const char *argv[])
 {
@@ -1655,6 +1999,19 @@ int main(int argc, const char *argv[])
     sym_define("ZPROGLFRMH",  28*2+6 + 47); /* 47 */
     sym_define("ZPROGFSLSH",  28*2+6); /* re-use the above for the forward slash graphic */
     sym_define("ZPROGBSLSH",  28*2+12); /* re-use the above for the back slash graphic */
+
+    sym_define("ZPBLTABPOS",   3);
+    sym_define("ZPBLROWDAT",   4);
+    sym_define("ZPBLXPOS",     5);
+    sym_define("ZPBLYPOS",     6);
+    sym_define("ZPBLTABOFF",   7);
+    sym_define("ZPBLDX",       8);
+    sym_define("ZPBLDY",       9);
+    sym_define("ZPBLLASTLO",  10);
+    sym_define("ZPBLLASTHI",  11);
+    sym_define("ZPBLLASTY",   12);
+    sym_define("ZPBLLSTSY",   13);
+
     sym_define("ZPSWFRAME",    3);
     sym_define("ZPSWFRAME2",   4);
     sym_define("ZPSINPOS1",    5);
@@ -1676,6 +2033,8 @@ int main(int argc, const char *argv[])
     sym_define("ZPNPFIN",     21);
     sym_define("ZPNPTMP1",    22);
     sym_define("ZPNPTMP2",    23);
+    
+    sym_define("ZPSTORY",    24);
 
     /* Demo entry point */
     assemble("demostart:\n"
@@ -1688,16 +2047,75 @@ int main(int argc, const char *argv[])
              "    JSR scrwipe\n"
              "    LDA #30\n" /* switch to hires */
              "    STA $BB80\n"
+             "    JSR nop_waitabit\n"
+             "    JSR bouncy\n"
              "    JSR noproblem\n"
              "    JSR stripewobbler\n"
              "    JSR rotatogreet\n"
              "demoend:\n"
-             "    JMP demoend\n", tapdata, &addr);
+             "    JMP demoend\n"
+             "zptmp_set_to_a000:\n"
+             "    LDA #$00\n"
+             "    STA ZPTMP\n"
+             "    LDA #$A0\n"
+             "    STA ZPTMP2\n"
+             "    RTS\n"
+             "zptmp_add40:\n"
+             "    CLC\n"
+             "zptmp_add40_noclc:\n"
+             "    LDA ZPTMP\n"
+             "    ADC #40\n"
+             "    STA ZPTMP\n"
+             "    LDA ZPTMP2\n"
+             "    ADC #0\n"
+             "    STA ZPTMP2\n"
+             "    RTS\n"
+             "zpany_add40:\n"
+             "    STY ZPSTORY\n"
+             "    TAY\n"
+             "    LDA $00,Y\n"
+             "    CLC\n"
+             "    ADC #40\n"
+             "    STA $00,Y\n"
+             "    INY\n"
+             "    LDA $00,Y\n"
+             "    ADC #0\n"
+             "    STA $00,Y\n"
+             "    LDY ZPSTORY\n"
+             "    RTS\n"
+             "zpany_sub40:\n"
+             "    STY ZPSTORY\n"
+             "    TAY\n"
+             "    LDA $00,Y\n"
+             "    SEC\n"
+             "    SBC #40\n"
+             "    STA $00,Y\n"
+             "    INY\n"
+             "    LDA $00,Y\n"
+             "    SBC #0\n"
+             "    STA $00,Y\n"
+             "    LDY ZPSTORY\n"
+             "    RTS\n"
+             "cmp_screenend:\n"
+             "    STY ZPSTORY\n"
+             "    TAY\n"
+             "    LDA $01,Y\n"
+             "    CMP #$BF\n"
+             "    BEQ .try_lo\n"
+             "    LDY ZPSTORY\n"
+             "    RTS\n"
+             ".try_lo:\n"
+             "    LDA $00,Y\n"
+             "    LDY ZPSTORY\n"
+             "    CMP #$40\n"
+             "    RTS\n"
+             , tapdata, &addr);
 
     gen_scrwipe(&addr);
     gen_stripewobbler(&addr);
     gen_rotatogreet(&addr);
     gen_noproblem(&addr);
+    gen_bouncy(&addr);
 
     /* Define a handy table for text screen access (currently only used by scrwipe)*/
     sym_define("scrtab", addr);

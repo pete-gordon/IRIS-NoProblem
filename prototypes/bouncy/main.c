@@ -28,11 +28,13 @@ uint8_t balltable[BALL_H][4], balltable_offs3[BALL_H][4];
 uint8_t ballidx[BALL_H];
 int table_max = BALL_H;
 
+int linestab[16][16];
 
 void render(void)
 {
     uint8_t *src, *dst;
     int x, y, i;
+    static int spacezoom = 0;
     memset(oric_screen, 0, sizeof(oric_screen));
 
     for (y=0; y<BALL_H; y++)
@@ -83,6 +85,21 @@ void render(void)
         }
     }
 
+    for (i=0; i<12; i++)
+    {
+        if ((linestab[spacezoom/16][i] < 0) || (linestab[spacezoom/16][i] >= ORIC_HIRES_H))
+        {
+            printf("Line %d = %d\n", i, linestab[spacezoom/16][i]);
+            continue;
+        }
+
+        for (x=0; x<ORIC_HIRES_W; x++)
+        {
+            oric_screen[linestab[spacezoom/16][i] * ORIC_HIRES_W + x] = 5;
+        }
+    }
+    spacezoom = (spacezoom+1) % (16*16);
+
     src = oric_screen;
     for (y=0; y<ORIC_HIRES_H; y++)
     {
@@ -127,7 +144,7 @@ void balltable_calcline(uint8_t *tabptr, int l, int r)
 
 SDL_bool init(void)
 {
-    int x, y, i, j, k, oldy;
+    int x, y, z, i, j, k, oldy;
     double ang;
     int ball_l[BALL_H] = { 0, };
     int ball_r[BALL_H] = { 0, };
@@ -197,6 +214,26 @@ SDL_bool init(void)
         table_max--;
     }
 
+    k = ORIC_HIRES_H;
+    for (j=0; j<16; j++)
+    {
+        for (i=0, z=256; i<12; z-=16, i++)
+        {
+            linestab[j][i] = 7680/(z-j);
+        }
+
+        if (linestab[j][0] < k)
+            k = linestab[j][0];
+    }
+
+    for (j=0; j<16; j++)
+    {
+        for (i=0; i<12; i++)
+        {
+            linestab[j][i] -= k;
+        }
+    }
+
     srand(time(NULL));
 
     CHECK_ALLOC(srf, SDL_SetVideoMode, (SDL_W, SDL_H, 8, SDL_HWPALETTE));
@@ -222,7 +259,7 @@ int main(int argc, char *argv[])
 {
     SDL_bool done = SDL_FALSE;
     SDL_bool engrabbened = SDL_FALSE;
-    int i;
+    int i, j;
     FILE *f = NULL;
 
     if (!init())
@@ -253,6 +290,17 @@ int main(int argc, char *argv[])
         if ((i%16) == 0)
             fprintf(f, "\n        ");
         fprintf(f, "0x%02x, ", ballidx[i]);
+    }
+    fprintf(f, "\n    };\n");
+    fprintf(f, "\n");
+    fprintf(f, "uint8_t linestab[16][12] =\n");
+    fprintf(f, "    {\n");
+    for (i=0; i<16; i++)
+    {
+        fprintf(f, "        { ");
+        for (j=0; j<12; j++)
+            fprintf(f, "0x%02x, ", linestab[i][j]);
+        fprintf(f, " },\n");
     }
     fprintf(f, "\n    };\n");
     fprintf(f, "#endif /* _BOUNCY_TABLES_H__ */\n");

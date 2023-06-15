@@ -608,7 +608,17 @@ void gen_rotatogreet(uint16_t *addr)
              "    JSR rotatogreet_rollaway\n"
              "    PLA\n"
              "    TAX\n"
-             "    JMP .rolloutloop\n", tapdata, addr);
+             "    LDA rog_linetab_hi\n"
+             "    CMP #$BF\n"
+             "    BEQ .tryhi\n"
+             "    BCS .finished\n"
+             "    BCC .rolloutloop\n"
+             ".tryhi:\n"
+             "    LDA rog_linetab_lo\n"
+             "    CMP #$40\n"
+             "    BCC .rolloutloop\n"
+             ".finished:\n"
+             "    RTS\n", tapdata, addr);
 
     smcaddr = sym_get(".rog_smc_pos");
     sym_define("rotatogreet_smc_lo", smcaddr+1);
@@ -655,7 +665,7 @@ void gen_rotatogreet(uint16_t *addr)
    
 
     {
-        const char *str = "GREETINGS:DEFENCE FORCE:DEKADENCE:DARKAGE:LOONIES:EPHIDRENA:RMC CAVE DWELLERS::IO PRINT:";
+        const char *str = "GREETINGS:DEFENCE FORCE:ATE BIT:BITSHIFTERS:DEKADENCE:DARKAGE:LOONIES:EPHIDRENA:RMC CAVE DWELLERS::IO PRINT:";
 
         sym_define("rotatogreet_str", *addr);
         for (i=0; str[i]; i++)
@@ -1625,18 +1635,22 @@ void gen_bouncy(uint16_t *addr)
     for (i=0; i<BALL_H; i++)
         tapdata[(*addr)++] = ballidx[i] * 8;
 
+    sym_define("floorlines", *addr);
+    memcpy(&tapdata[*addr], &linestab[0][0], sizeof(linestab));
+    (*addr) += sizeof(linestab);
+
     ballbot = (BALL_H-1) * 40;
 
-    assemble("bouncy_draw_shadow:\n"
+    assemble("bouncy_draw_reflection:\n"
              "    LDA #$C8\n"
              "    STA bdraw_smc\n"
              "    LDA ZPBLYPOS\n"
              "    LSR\n"
              "    LSR\n"
-             "    STA ZPBLLSTSY\n"
+             "    STA ZPBLLSTRY\n"
              "    LDA #200\n"
              "    SEC\n"
-             "    SBC ZPBLLSTSY\n"
+             "    SBC ZPBLLSTRY\n"
              "    CLC\n"
              "    STA ZPTMP\n"
              "    LDA #0\n"
@@ -1676,6 +1690,13 @@ void gen_bouncy(uint16_t *addr)
              "    LDA ZPTMP2\n"
              "    ADC #%u\n"
              "    STA ZPTMP4\n"
+
+             "    LDA ZPTMP5\n"
+             "    ADC ZPTMP\n"
+             "    STA ZPBLLSTRLO\n"
+             "    LDA ZPTMP2\n"
+             "    ADC #0\n"
+             "    STA ZPBLLSTRHI\n"
              "    JMP bdraw_continue\n", ballbot&0xff, ballbot>>8);
     assemble(tmp, tapdata, addr);
 
@@ -1762,10 +1783,24 @@ void gen_bouncy(uint16_t *addr)
              "    CLC\n"
              "    ADC ZPBLTABOFF\n"
              "    TAX\n"
+
+             "    LDY ZPTMP5\n"
+
              "    LDA balltab,X\n"
-             "    ADC ZPTMP5\n"  // C should always be 0 here, no need to CLC
-             "    TAY\n"
+             "    STA ZPBLTMP\n"
+             "    BEQ .noaddoaddo\n"
+             "    STX ZPBLTMP2\n"
+             "    TAX\n"
+             ".loopbonk:\n"
+             "    LDA #$40\n"
+             "    JSR bdraw_plotit\n"
+             "    INY\n"
+             "    DEX\n"
+             "    BNE .loopbonk\n"
+             "    LDX ZPBLTMP2\n"
+             ".noaddoaddo:\n"
              "    INX\n"
+
              "    LDA #$40\n"
              "    JSR bdraw_plotit\n"
              "    INY\n"
@@ -1789,8 +1824,13 @@ void gen_bouncy(uint16_t *addr)
              "    LDA balltab,X\n"
              "    JSR bdraw_plotit\n"
              "    INY\n"
+             "    LDX ZPBLTMP\n"
+             ".clroclro:\n"
              "    LDA #$40\n"
              "    JSR bdraw_plotit\n"
+             "    INY\n"
+             "    DEX\n"
+             "    BPL .clroclro\n"
              ".clipit:\n"
              "    LDA #>ZPTMP3\n"
              "    JSR zpany_sub40\n"
@@ -1812,6 +1852,16 @@ void gen_bouncy(uint16_t *addr)
              "    RTS\n", tapdata, addr);
 
     assemble("bouncy:\n"
+             "    LDY #>ZPBLTMP2\n"
+             "    LDA #0\n"
+             ".clrzp:\n"
+             "    STA $00,Y\n"
+             "    DEY\n"
+             "    BNE .clrzp\n"
+             "    LDA #>floorlines\n"
+             "    STA ZPBLFLLLO\n"
+             "    LDA #<floorlines\n"
+             "    STA ZPBLFLLHI\n"
              "    LDA #0\n"
              "    STA ZPBLXPOS\n"
              "    STA ZPBLYPOS\n"
@@ -1819,18 +1869,23 @@ void gen_bouncy(uint16_t *addr)
              "    LDX #120\n"
              "    LDA #7\n"
              "    STA ZPTMP3\n"
+             "    STA ZPTMP5\n"
              "    LDA #16\n"
              "    STA ZPTMP4\n"
-             "    JSR bouncy_clr_part\n"
+             "    JSR bouncy_clr_part_nolines\n"
              "    LDX #40\n"
              "    LDA #20\n"
              "    STA ZPTMP4\n"
+             "    LDA #0\n"
+             "    STA ZPBLFLTABO\n"
+             "    STA ZPBLFLLINE\n"
              "    JSR bouncy_clr_part\n"
              "    LDX #40\n"
              "    LDA #6\n"
              "    STA ZPTMP3\n"
+             "    LDA #5\n"
+             "    STA ZPTMP5\n"
              "    JSR bouncy_clr_part\n"
-
              "    LDA #$78\n"
              "    STA ZPTMP\n"
              "    LDA #$A0\n"
@@ -1842,7 +1897,8 @@ void gen_bouncy(uint16_t *addr)
              "    STA ZPBLYPOS\n"
              "bouncy_loop:\n"
              "    JSR bouncy_draw\n"
-             "    JSR bouncy_draw_shadow\n", tapdata, addr);
+             "    JSR bouncy_draw_reflection\n"
+             "    JSR bouncy_movelines\n", tapdata, addr);
 
     snprintf(tmp, sizeof(tmp),
              "    LDA ZPBLYPOS\n"
@@ -1882,24 +1938,19 @@ void gen_bouncy(uint16_t *addr)
              "    EOR #1\n"
              "    STA ZPBLDX\n"
              ".dontpongit:\n"
-             "    LDY #6\n"
-             "bouncy_delayo:\n"
-             "    LDX #0\n"
+             /*"    LDX #20\n"
              "bouncy_delay:\n"
              "    DEX\n"
-             "    BNE bouncy_delay\n"
-             "    DEY\n"
-             "    BNE bouncy_delayo\n", tapdata, addr);
+             "    BNE bouncy_delay\n"*/, tapdata, addr);
 
     snprintf(tmp, sizeof(tmp),
-             "bpme:\n"
              "    LDA ZPBLYPOS\n"
              "    LSR\n"
              "    STA ZPTMP3\n"
              "    CMP ZPBLLASTY\n"
              "    BEQ bouncy_loop\n"
              "    BCS .clrtop\n"
-             
+
              "    LDA ZPBLLASTLO\n"
              "    CLC\n"
              "    ADC #%u\n"
@@ -1911,19 +1962,30 @@ void gen_bouncy(uint16_t *addr)
     assemble("    LDA ZPBLLASTY\n"
              "    SEC\n"
              "    SBC ZPTMP3\n"
-             "    ADC #4\n"
              "    TAX\n"
+             "    LSR\n"
+             "    STA ZPBLTMP\n"
              ".clearrows_bot:\n"
              "    LDA #>ZPTMP\n"
              "    JSR zpany_sub40\n", tapdata, addr);
     snprintf(tmp, sizeof(tmp),
-             "    LDA #$40\n"
              "    LDY #%u\n", (((BALL_W*2)+5)/6)+1);
     assemble(tmp, tapdata, addr);
     assemble(".clearrow_bot:\n"
+             "    LDA #$40\n"
              "    STA (ZPTMP),Y\n"
+             "    CPX ZPBLTMP\n"
+             "    BCC .nope2\n"
+             "    LDA #>ZPBLLSTRLO\n"
+             "    JSR cmp_screenend\n"
+             "    BCS .nope2\n"
+             "    LDA #$40\n"
+             "    STA (ZPBLLSTRLO),Y\n"
+             ".nope2:\n"
              "    DEY\n"
              "    BPL .clearrow_bot\n"
+             "    LDA #>ZPBLLSTRLO\n"
+             "    JSR zpany_add40\n"
              "    DEX\n"
              "    BNE .clearrows_bot\n"
              "    JMP bouncy_loop\n"
@@ -1931,37 +1993,133 @@ void gen_bouncy(uint16_t *addr)
              "    LDA ZPBLLASTLO\n"
              "    STA ZPTMP\n"
              "    LDA ZPBLLASTHI\n"
-             "    STA ZPTMP2\n"
-
-             "    LDA ZPTMP3\n"
+             "    STA ZPTMP2\n", tapdata, addr);
+    snprintf(tmp, sizeof(tmp),
+             "    LDA ZPBLLSTRLO\n"
+             "    ADC #%u\n"
+             "    STA ZPBLLSTRLO\n"
+             "    LDA ZPBLLSTRHI\n"
+             "    ADC #%u\n"
+             "    STA ZPBLLSTRHI\n", (BALL_H*40)&0xff, (BALL_H*40)>>8);
+    assemble(tmp, tapdata, addr);
+    assemble("    LDA ZPTMP3\n"
              "    SEC\n"
              "    SBC ZPBLLASTY\n"
-             "    ADC #4\n"
-             "    TAX\n", tapdata, addr);
+             "    TAX\n"
+             "    LSR\n"
+             "    STA ZPBLTMP\n", tapdata, addr);
 
     snprintf(tmp, sizeof(tmp),
              ".clearrows:\n"
-             "    LDA #$40\n"
+             "    LDA #>ZPBLLSTRLO\n"
+             "    JSR zpany_sub40\n"
              "    LDY #%u\n"
              ".clearrow:\n"
+             "    LDA #$40\n"
              "    STA (ZPTMP),Y\n"
+             "    CPX ZPBLTMP\n"
+             "    BCC .nope4\n"
+             "    LDA #>ZPBLLSTRLO\n"
+             "    JSR cmp_screenend\n"
+             "    BCS .nope4\n"
+             "    LDA #$40\n"
+             "    STA (ZPBLLSTRLO),Y\n"
+             ".nope4:\n"
              "    DEY\n"
              "    BPL .clearrow\n"
              "    JSR zptmp_add40\n"
              "    DEX\n"
              "    BNE .clearrows\n", (((BALL_W*2)+5)/6)+1);
     assemble(tmp, tapdata, addr);
-
     assemble("    JMP bouncy_loop\n", tapdata, addr);
 
+    assemble("bouncy_movelines:\n"
+             "    LDA ZPBLFLFRM\n"
+             "    CLC\n"
+             "    ADC #12\n"
+             "    CMP #192\n"
+             "    BNE .okeydoke\n"
+             "    LDA #0\n"
+             ".okeydoke:\n"
+             "    STA ZPBLFLFRM\n"
+             "    ADC #>floorlines\n"
+             "    STA ZPBLFLLLO\n"
+             "    LDA #<floorlines\n"
+             "    ADC #0\n"
+             "    STA ZPBLFLLHI\n"
+             "    LDA #0\n"
+             "    STA ZPBLFLTABO\n"
+             "    STA ZPBLFLLINE\n"
+             "    LDA #$C0\n"
+             "    STA ZPTMP\n"
+             "    LDA #$B2\n"
+             "    STA ZPTMP2\n"
+             "    LDA #7\n"
+             "    STA ZPTMP5\n"
+             "    STA ZPTMP6\n"
+             "    LDX #40\n"
+             "    JSR bouncy_mvl_part\n"
+             "    LDA #5\n"
+             "    STA ZPTMP5\n"
+             "    LDA #6\n"
+             "    STA ZPTMP6\n"
+             "    LDX #40\n"
+             "bouncy_mvl_part:\n"
+             "    LDY ZPBLFLTABO\n"
+             "    LDA (ZPBLFLLLO),Y\n"
+             "    CMP ZPBLFLLINE\n"
+             "    BNE .notspecialmovo\n"
+             "    INY\n"
+             "    STY ZPBLFLTABO\n"
+             "    LDY #0\n"
+             "    LDA ZPTMP5\n"
+             "    STA (ZPTMP),Y\n"
+             "    INY\n"
+             "    LDA #17\n"
+             "    STA (ZPTMP),Y\n"
+             "    BNE .donespecialmovo\n"
+             ".notspecialmovo:\n"
+             "    LDY #0\n"
+             "    LDA ZPTMP6\n"
+             "    STA (ZPTMP),Y\n"
+             "    INY\n"
+             "    LDA #20\n"
+             "    STA (ZPTMP),Y\n"
+             ".donespecialmovo:\n"
+             "    LDY ZPBLFLLINE\n"
+             "    INY\n"
+             "    STY ZPBLFLLINE\n"
+             "    JSR zptmp_add40\n"
+             "    DEX\n"
+             "    BNE bouncy_mvl_part\n"
+             "    RTS\n", tapdata, addr);
+
     assemble("bouncy_clr_part:\n"
+             "    LDY ZPBLFLTABO\n"
+             "    LDA (ZPBLFLLLO),Y\n"
+             "    CMP ZPBLFLLINE\n"
+             "    BNE bouncy_clr_part_nolines\n"
+             "    INY\n"
+             "    STY ZPBLFLTABO\n"
+             "    LDY #0\n"
+             "    LDA ZPTMP5\n"
+             "    STA (ZPTMP),Y\n"
+             "    INY\n"
+             "    LDA #17\n"
+             "    STA (ZPTMP),Y\n"
+             "    BNE .donespecial\n"
+             "bouncy_clr_part_nolines:\n"
              "    LDY #0\n"
              "    LDA ZPTMP3\n"
              "    STA (ZPTMP),Y\n"
              "    INY\n"
              "    LDA ZPTMP4\n"
              "    STA (ZPTMP),Y\n"
+             ".donespecial:\n"
+             "    LDY ZPBLFLLINE\n"
              "    INY\n"
+             "    STY ZPBLFLLINE\n"
+             "    LDY #2\n"
              "    LDA #$40\n"
              ".bouncy_clr2:\n"
              "    STA (ZPTMP),Y\n"
@@ -2010,7 +2168,16 @@ int main(int argc, const char *argv[])
     sym_define("ZPBLLASTLO",  10);
     sym_define("ZPBLLASTHI",  11);
     sym_define("ZPBLLASTY",   12);
-    sym_define("ZPBLLSTSY",   13);
+    sym_define("ZPBLLSTRLO",  13);
+    sym_define("ZPBLLSTRHI",  14);
+    sym_define("ZPBLLSTRY",   15);
+    sym_define("ZPBLFLTABO",  16);
+    sym_define("ZPBLFLLINE",  17);
+    sym_define("ZPBLFLLLO",   18);
+    sym_define("ZPBLFLLHI",   19);
+    sym_define("ZPBLFLFRM",   20);
+    sym_define("ZPBLTMP",     21);
+    sym_define("ZPBLTMP2",    22);
 
     sym_define("ZPSWFRAME",    3);
     sym_define("ZPSWFRAME2",   4);
@@ -2047,11 +2214,10 @@ int main(int argc, const char *argv[])
              "    JSR scrwipe\n"
              "    LDA #30\n" /* switch to hires */
              "    STA $BB80\n"
-             "    JSR nop_waitabit\n"
-             "    JSR bouncy\n"
              "    JSR noproblem\n"
              "    JSR stripewobbler\n"
              "    JSR rotatogreet\n"
+             "    JSR bouncy\n"
              "demoend:\n"
              "    JMP demoend\n"
              "zptmp_set_to_a000:\n"

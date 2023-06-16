@@ -3,7 +3,7 @@ OBJECTS = noproblem.o asm6502.o music.o
 DEMOFILE = noproblm.tap
 SYMFILE = noproblm.sym
 
-CFLAGS = -Wall -Werror -O0 -g
+CFLAGS = -Wall -Werror -O3 -g
 LDFLAGS = -g
 
 .PHONY: all clean

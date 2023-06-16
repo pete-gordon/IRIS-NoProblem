@@ -65,12 +65,16 @@ extern uint8_t tapdata[65536];
 #define PLY_AKY_USE_Noise 1
 #endif
 
+extern bool show_asm_perc;
 void gen_music(uint16_t *addr)
 {
     uint16_t smcaddr;
     int i;
 
+    printf("Assembling the tune (might take a while)...\n");
+    show_asm_perc = true;
     assemble(musicdata, tapdata, addr);
+    show_asm_perc = false;
     for (i=0; i<NUM_ENTRIES(musfixups); i++)
     {
         smcaddr = sym_get(musfixups[i].srcsym);
@@ -78,6 +82,7 @@ void gen_music(uint16_t *addr)
     }
 
     resolve_and_remove_temporary_syms(tapdata);
+    printf("Done!\n");
 
     sym_define("VIA_ORA", 0x030f);
     sym_define("VIA_PCR", 0x030c);
@@ -1331,8 +1336,10 @@ void gen_music(uint16_t *addr)
     sym_define("PLY_AKY_CHANNEL3_PTREGISTERBLOCK_pl1", smcaddr+1);
     sym_define("PLY_AKY_CHANNEL3_PTREGISTERBLOCK_pl5", smcaddr+5);
 
+#if defined(PLY_CFG_UseHardwareSounds) || defined(PLY_AKY_USE_SoftAndHard_Agglomerated)
     smcaddr = sym_get("PLY_AKY_PSGREGISTER13_RETRIG");
     sym_define("PLY_AKY_PSGREGISTER13_RETRIG_pl1", smcaddr+1);
+#endif
 
     resolve_and_remove_temporary_syms(tapdata);
 }

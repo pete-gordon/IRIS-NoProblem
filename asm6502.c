@@ -9,7 +9,7 @@
 #include "noproblem.h"
 #include "asm6502.h"
 
-#define MAX_SYMBOLS (131072)
+#define MAX_SYMBOLS (4096)
 #define MAX_REFS (512)
 
 enum
@@ -70,8 +70,8 @@ struct asminf
   int16_t imp, imm, zp, zpx, zpy, abs, abx, aby, zix, ziy, rel, ind;
 };
 
-static int num_syms = 0;
-static struct symbol syms[MAX_SYMBOLS];
+static int num_syms[64] = { 0, };
+static struct symbol syms[64][MAX_SYMBOLS];
 static int num_pending = 0;
 static struct pendingref pendsyms[MAX_SYMBOLS];
 
@@ -159,6 +159,17 @@ static struct asminf asmtab[] = { { "BRK", 0x00,   -1,   -1,   -1,   -1,   -1,  
 
                                   { NULL, } };
 
+uint8_t sym_hash(const char *sym)
+{
+    uint8_t hash = 0xbb;
+    int i;
+
+    for (i=0; sym[i]; i++)
+        hash ^= sym[i] ^ (sym[i]>>2);
+
+    return hash & 0x3f;
+}
+
 bool isbin(char c)
 {
     return ((c >= '0') && (c <= '1'));
@@ -205,36 +216,38 @@ int hexit(char c)
 void sym_define(char *symname, uint16_t addr)
 {
     int i;
+    uint8_t hash = sym_hash(symname);
 
-    for (i=0; i<num_syms; i++)
+    for (i=0; i<num_syms[hash]; i++)
     {
-        if (strncmp(symname, syms[i].name, MAX_SYMLEN) == 0)
+        if (strncmp(symname, syms[hash][i].name, MAX_SYMLEN) == 0)
         {
             fprintf(stderr, "Duplicate symbol '%s'\n", symname);
             exit(EXIT_FAILURE);
         }
     }
 
-    if (num_syms >= MAX_SYMBOLS)
+    if (num_syms[hash] >= MAX_SYMBOLS)
     {
         fprintf(stderr, "Too many symbols\n");
         exit(EXIT_FAILURE);
     }
 
-    strncpy(syms[num_syms].name, symname, MAX_SYMLEN);
-    syms[num_syms].name[MAX_SYMLEN-1] = 0;
-    syms[num_syms++].address = addr;
+    strncpy(syms[hash][num_syms[hash]].name, symname, MAX_SYMLEN);
+    syms[hash][num_syms[hash]].name[MAX_SYMLEN-1] = 0;
+    syms[hash][num_syms[hash]++].address = addr;
 }
 
 uint16_t sym_get(char *symname)
 {
     int i;
+    uint8_t hash = sym_hash(symname);
 
-    for (i=0; i<num_syms; i++)
+    for (i=0; i<num_syms[hash]; i++)
     {
-        if (strncmp(symname, syms[i].name, MAX_SYMLEN) == 0)
+        if (strncmp(symname, syms[hash][i].name, MAX_SYMLEN) == 0)
         {
-            return syms[i].address;
+            return syms[hash][i].address;
         }
     }
 
@@ -246,9 +259,10 @@ uint16_t sym_get(char *symname)
 bool sym_set(char *symname)
 {
     int i;
-    for (i=0; i<num_syms; i++)
+    uint8_t hash = sym_hash(symname);
+    for (i=0; i<num_syms[hash]; i++)
     {
-        if (strncmp(symname, syms[i].name, MAX_SYMLEN) == 0)
+        if (strncmp(symname, syms[hash][i].name, MAX_SYMLEN) == 0)
         {
             return true;
         }
@@ -259,11 +273,14 @@ bool sym_set(char *symname)
 
 void dump_syms(FILE *f)
 {
-    int i;
+    int h, i;
 
-    for (i=0; i<num_syms; i++)
+    for (h=0; h<0x40; h++)
     {
-        fprintf(f, "%04x %s\n", syms[i].address, syms[i].name);
+        for (i=0; i<num_syms[h]; i++)
+        {
+            fprintf(f, "%04x %s\n", syms[h][i].address, syms[h][i].name);
+        }
     }
 }
 
@@ -271,6 +288,7 @@ void resolve_and_remove_temporary_syms(uint8_t *outbuffer)
 {
     int p, s, pt, r;
     int rel;
+    uint8_t hash;
 
     p = 0;
     while (p < num_pending)
@@ -281,13 +299,15 @@ void resolve_and_remove_temporary_syms(uint8_t *outbuffer)
             continue;
         }
 
-        for (s=0; s<num_syms; s++)
+        hash = sym_hash(pendsyms[p].name);
+
+        for (s=0; s<num_syms[hash]; s++)
         {
-            if (strcmp(syms[s].name, pendsyms[p].name) == 0)
+            if (strcmp(syms[hash][s].name, pendsyms[p].name) == 0)
                 break;
         }
 
-        if (s == num_syms)
+        if (s == num_syms[hash])
         {
             fprintf(stderr, "Undefined symbol '%s'\n", pendsyms[p].name);
             exit(EXIT_FAILURE);
@@ -300,21 +320,21 @@ void resolve_and_remove_temporary_syms(uint8_t *outbuffer)
                 switch (pt)
                 {
                     case PRT_ABS16:
-                        outbuffer[pendsyms[p].ref[pt][r]] = (syms[s].address & 0xff);
-                        outbuffer[pendsyms[p].ref[pt][r]+1] = (syms[s].address >> 8);
+                        outbuffer[pendsyms[p].ref[pt][r]] = (syms[hash][s].address & 0xff);
+                        outbuffer[pendsyms[p].ref[pt][r]+1] = (syms[hash][s].address >> 8);
                         break;
 
                     case PRT_ABS8:
                     case PRT_LO:
-                        outbuffer[pendsyms[p].ref[pt][r]] = (syms[s].address & 0xff);
+                        outbuffer[pendsyms[p].ref[pt][r]] = (syms[hash][s].address & 0xff);
                         break;
 
                     case PRT_HI:
-                        outbuffer[pendsyms[p].ref[pt][r]] = (syms[s].address >> 8);
+                        outbuffer[pendsyms[p].ref[pt][r]] = (syms[hash][s].address >> 8);
                         break;
 
                     case PRT_REL:
-                        rel = ((int)syms[s].address)-((int)(pendsyms[p].ref[pt][r]+1));
+                        rel = ((int)syms[hash][s].address)-((int)(pendsyms[p].ref[pt][r]+1));
                         if ((rel < -128) || (rel > 127))
                         {
                             fprintf(stderr, "Branch out of range\n");
@@ -333,18 +353,21 @@ void resolve_and_remove_temporary_syms(uint8_t *outbuffer)
         num_pending--;
     }
 
-    s = 0;
-    while (s < num_syms)
+    for (r=0; r<0x40; r++)
     {
-        if (syms[s].name[0] != '.')
+        s = 0;
+        while (s < num_syms[r])
         {
-            s++;
-            continue;
-        }
+            if (syms[r][s].name[0] != '.')
+            {
+                s++;
+                continue;
+            }
 
-        if (s < (num_syms-1))
-            memmove(&syms[s], &syms[s+1], sizeof(struct symbol) * (num_syms - (s+1)));
-        num_syms--;
+            if (s < (num_syms[r]-1))
+                memmove(&syms[r][s], &syms[r][s+1], sizeof(struct symbol) * (num_syms[r] - (s+1)));
+            num_syms[r]--;
+        }
     }
 }
 
@@ -352,17 +375,20 @@ void resolve_pending(uint8_t *outbuffer, bool mustresolve)
 {
     int p, s, pt, r;
     int rel;
+    uint8_t hash;
 
     p = 0;
     while (p < num_pending)
     {
-        for (s=0; s<num_syms; s++)
+        hash = sym_hash(pendsyms[p].name);
+
+        for (s=0; s<num_syms[hash]; s++)
         {
-            if (strcmp(syms[s].name, pendsyms[p].name) == 0)
+            if (strcmp(syms[hash][s].name, pendsyms[p].name) == 0)
                 break;
         }
 
-        if (s == num_syms)
+        if (s == num_syms[hash])
         {
             p++;
             continue;
@@ -375,21 +401,21 @@ void resolve_pending(uint8_t *outbuffer, bool mustresolve)
                 switch (pt)
                 {
                     case PRT_ABS16:
-                        outbuffer[pendsyms[p].ref[pt][r]] = (syms[s].address & 0xff);
-                        outbuffer[pendsyms[p].ref[pt][r]+1] = (syms[s].address >> 8);
+                        outbuffer[pendsyms[p].ref[pt][r]] = (syms[hash][s].address & 0xff);
+                        outbuffer[pendsyms[p].ref[pt][r]+1] = (syms[hash][s].address >> 8);
                         break;
 
                     case PRT_ABS8:
                     case PRT_LO:
-                        outbuffer[pendsyms[p].ref[pt][r]] = (syms[s].address & 0xff);
+                        outbuffer[pendsyms[p].ref[pt][r]] = (syms[hash][s].address & 0xff);
                         break;
 
                     case PRT_HI:
-                        outbuffer[pendsyms[p].ref[pt][r]] = (syms[s].address >> 8);
+                        outbuffer[pendsyms[p].ref[pt][r]] = (syms[hash][s].address >> 8);
                         break;
 
                     case PRT_REL:
-                        rel = ((int)syms[s].address)-((int)(pendsyms[p].ref[pt][r]+1));
+                        rel = ((int)syms[hash][s].address)-((int)(pendsyms[p].ref[pt][r]+1));
                         if ((rel < -128) || (rel > 127))
                         {
                             fprintf(stderr, "Branch out of range\n");
@@ -486,6 +512,7 @@ bool try_symref(const char *src, int *offs, uint16_t *symaddr, struct pendingref
 {
     int i, len;
     char gotsym[MAX_SYMLEN];
+    uint8_t hash;
 
     (*symaddr) = 0;
     (*pref) = NULL;
@@ -511,11 +538,13 @@ bool try_symref(const char *src, int *offs, uint16_t *symaddr, struct pendingref
     gotsym[len] = 0;
     (*offs) = i;
 
-    for (i=0; i<num_syms; i++)
+    hash = sym_hash(gotsym);
+
+    for (i=0; i<num_syms[hash]; i++)
     {
-        if (strcmp(gotsym, syms[i].name) == 0)
+        if (strcmp(gotsym, syms[hash][i].name) == 0)
         {
-            (*symaddr) = syms[i].address;
+            (*symaddr) = syms[hash][i].address;
             return true;
         }
     }
@@ -1088,12 +1117,25 @@ static bool assemble_line(const char *src, int offs, uint8_t *outbuffer, uint16_
 }
 
 
+bool show_asm_perc = false;
 void assemble(const char *src, uint8_t *outbuffer, uint16_t *asmaddr)
 {
     int offs=0;
+    int len = strlen(src);
+    int perc, lastperc = -1;
 
     while (src[offs])
     {
+        if (show_asm_perc)
+        {
+            perc = (offs*100) / len;
+            if (perc != lastperc)
+            {
+                printf("%d%%\r", perc);
+                lastperc = perc;
+            }
+        }
+
         if (((*asmaddr) < TAP_START) || ((*asmaddr) >= MAX_TAPADDR))
         {
             fprintf(stderr, "Out of space!\n");

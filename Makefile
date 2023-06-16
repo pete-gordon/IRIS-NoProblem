@@ -1,5 +1,5 @@
 TARGET = mkdemo.exe
-OBJECTS = noproblem.o asm6502.o
+OBJECTS = noproblem.o asm6502.o music.o
 DEMOFILE = noproblm.tap
 SYMFILE = noproblm.sym
 

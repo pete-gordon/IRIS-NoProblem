@@ -10,7 +10,7 @@
 #include "asm6502.h"
 
 #define MAX_SYMBOLS (131072)
-#define MAX_REFS (32)
+#define MAX_REFS (512)
 
 enum
 {
@@ -559,7 +559,7 @@ static bool decode_operand(const char *ptr, int *type, uint16_t *val, struct pen
 {
     int i;
     uint16_t v;
-    
+
     (*pref) = NULL;
     (*preftyp) = MAX_PENDREF_TYPES;
     (*val) = 0;
@@ -719,7 +719,7 @@ static bool assemble_line(const char *src, int offs, uint8_t *outbuffer, uint16_
     struct pendingref *pref = NULL;
     int preftyp = MAX_PENDREF_TYPES;
     const char *thisline = &src[offs];
- 
+
     while ((src[offs] == ' ') || (src[offs] == '\t'))
         offs++;
 
@@ -758,248 +758,324 @@ static bool assemble_line(const char *src, int offs, uint8_t *outbuffer, uint16_
         return true;
     }
 
-    for (j=0; asmtab[j].name; j++)
+    if (strncmp(&src[offs], "!byte", 5) == 0)
     {
-        if (strncasecmp(asmtab[j].name, &src[offs], 3) == 0)
-            break;
-    }
+        preftyp = PRT_ABS8;
+        offs += 5;
 
-    if (!asmtab[j].name)
-    {
-        fprintf(stderr, "Unrecognised opcode '%c%c%c': '%s'\n", src[offs], src[offs+1], src[offs+2], isolated_line(thisline));
-        return false;
-    }
+        while ((src[offs] == ' ') || (src[offs] == '\t'))
+            offs++;
 
-    offs += 3;
-    if (!decode_operand(&src[offs], &amode, &val, &pref, &preftyp))
-    {
-        fprintf(stderr, "Illegal operand: '%s'\n", isolated_line(thisline));
-        return false;
-    }
+        if (src[offs] == '<')
+        {
+            preftyp = PRT_HI;
+            offs++;
+        }
+        else if (src[offs] == '>')
+        {
+            preftyp = PRT_LO;
+            offs++;
+        }
 
-//    printf("%s: amode is %u\n", isolated_line(thisline), amode);
-
-    switch (amode)
-    {
-        case AM_IMP:
-            if (asmtab[j].imp == -1) { fprintf(stderr, "Operand expected: '%s'\n", isolated_line(thisline)); return false; }
-            outbuffer[(*asmaddr)++] = asmtab[j].imp;
-            break;
-
-        case AM_IMM:
-            if (asmtab[j].imm == -1) { fprintf(stderr, "Illegal operand: '%s'\n", isolated_line(thisline)); return false; }
-            outbuffer[(*asmaddr)++] = asmtab[j].imm;
-
+        if (try_symref(src, &offs, &val, &pref))
+        {
             if (NULL != pref)
             {
                 if (pref->num[preftyp] >= MAX_REFS)
                 {
-                    fprintf(stderr, "Too many pending references to '%s'\n", pref->name);
+                    fprintf(stderr, "Too many pending references to '%s' (limit reached at '%s')\n", pref->name, isolated_line(thisline));
                     exit(EXIT_FAILURE);
                 }
 
                 pref->ref[preftyp][pref->num[preftyp]++] = (*asmaddr);
             }
-
-            outbuffer[(*asmaddr)++] = val;                
-            break;
-
-        case AM_ABS:
-            if (asmtab[j].rel != -1)
+        }
+        else
+        {
+            if (!getnum(&val, src, &offs))
             {
-                outbuffer[(*asmaddr)++] = asmtab[j].rel;
+                fprintf(stderr, "Value expected at '%s'\n", isolated_line(thisline));
+                exit(EXIT_FAILURE);
+            }
+        }
+
+        outbuffer[(*asmaddr)++] = val;
+    }
+    else if (strncmp(&src[offs], "!word", 5) == 0)
+    {
+        preftyp = PRT_ABS16;
+        offs += 5;
+
+        if (try_symref(src, &offs, &val, &pref))
+        {
+            if (NULL != pref)
+            {
+                if (pref->num[preftyp] >= MAX_REFS)
+                {
+                    fprintf(stderr, "Too many pending references to '%s' (limit reached at '%s')\n", pref->name, isolated_line(thisline));
+                    exit(EXIT_FAILURE);
+                }
+
+                pref->ref[preftyp][pref->num[preftyp]++] = (*asmaddr);
+            }
+        }
+        else
+        {
+            if (!getnum(&val, src, &offs))
+            {
+                fprintf(stderr, "Value expected at '%s'\n", isolated_line(thisline));
+                exit(EXIT_FAILURE);
+            }
+        }
+
+        outbuffer[(*asmaddr)++] = val&0xff;
+        outbuffer[(*asmaddr)++] = val>>8;
+    }
+    else
+    {
+        for (j=0; asmtab[j].name; j++)
+        {
+            if (strncasecmp(asmtab[j].name, &src[offs], 3) == 0)
+                break;
+        }
+
+        if (!asmtab[j].name)
+        {
+            fprintf(stderr, "Unrecognised opcode '%c%c%c': '%s'\n", src[offs], src[offs+1], src[offs+2], isolated_line(thisline));
+            return false;
+        }
+
+        offs += 3;
+        if (!decode_operand(&src[offs], &amode, &val, &pref, &preftyp))
+        {
+            fprintf(stderr, "Illegal operand: '%s'\n", isolated_line(thisline));
+            return false;
+        }
+
+    //    printf("%s: amode is %u\n", isolated_line(thisline), amode);
+
+        switch (amode)
+        {
+            case AM_IMP:
+                if (asmtab[j].imp == -1) { fprintf(stderr, "Operand expected: '%s'\n", isolated_line(thisline)); return false; }
+                outbuffer[(*asmaddr)++] = asmtab[j].imp;
+                break;
+
+            case AM_IMM:
+                if (asmtab[j].imm == -1) { fprintf(stderr, "Illegal operand: '%s'\n", isolated_line(thisline)); return false; }
+                outbuffer[(*asmaddr)++] = asmtab[j].imm;
 
                 if (NULL != pref)
                 {
-                    if (pref->num[PRT_REL] >= MAX_REFS)
+                    if (pref->num[preftyp] >= MAX_REFS)
                     {
-                        fprintf(stderr, "Too many pending references to '%s'\n", pref->name);
+                        fprintf(stderr, "Too many pending references to '%s' (limit reached at '%s')\n", pref->name, isolated_line(thisline));
                         exit(EXIT_FAILURE);
                     }
 
-                    pref->ref[PRT_REL][pref->num[PRT_REL]++] = (*asmaddr);
-                    k = 0;
+                    pref->ref[preftyp][pref->num[preftyp]++] = (*asmaddr);
                 }
-                else
+
+                outbuffer[(*asmaddr)++] = val;
+                break;
+
+            case AM_ABS:
+                if (asmtab[j].rel != -1)
                 {
-                    k = ((int)val)-((int)((*asmaddr)+1));
-                    if ((k < -128) || (k > 127))
+                    outbuffer[(*asmaddr)++] = asmtab[j].rel;
+
+                    if (NULL != pref)
                     {
-                        fprintf(stderr, "Branch out of range: '%s' (address was decoded as 0x%04x)\n", isolated_line(thisline), val);
-                        return false;
+                        if (pref->num[PRT_REL] >= MAX_REFS)
+                        {
+                            fprintf(stderr, "Too many pending references to '%s' (limit reached at '%s')\n", pref->name, isolated_line(thisline));
+                            exit(EXIT_FAILURE);
+                        }
+
+                        pref->ref[PRT_REL][pref->num[PRT_REL]++] = (*asmaddr);
+                        k = 0;
                     }
+                    else
+                    {
+                        k = ((int)val)-((int)((*asmaddr)+1));
+                        if ((k < -128) || (k > 127))
+                        {
+                            fprintf(stderr, "Too many pending references to '%s' (limit reached at '%s')\n", pref->name, isolated_line(thisline));
+                            return false;
+                        }
+                    }
+
+                    outbuffer[(*asmaddr)++] = k&0xff;
+                    break;
                 }
 
-                outbuffer[(*asmaddr)++] = k&0xff;
+                if ((asmtab[j].zp != -1) && ((val&0xff00)==0) && (NULL == pref))
+                {
+                    outbuffer[(*asmaddr)++] = asmtab[j].zp;
+                    outbuffer[(*asmaddr)++] = val;
+                    break;
+                }
+
+                if (asmtab[j].abs == -1) { fprintf(stderr, "Illegal operand: '%s'\n", isolated_line(thisline)); return false; }
+                outbuffer[(*asmaddr)++] = asmtab[j].abs;
+
+                if (NULL != pref)
+                {
+                    if (pref->num[preftyp] >= MAX_REFS)
+                    {
+                        fprintf(stderr, "Too many pending references to '%s' (limit reached at '%s')\n", pref->name, isolated_line(thisline));
+                        exit(EXIT_FAILURE);
+                    }
+
+                    pref->ref[preftyp][pref->num[preftyp]++] = (*asmaddr);
+                }
+
+                outbuffer[(*asmaddr)++] = val&0xff;
+                outbuffer[(*asmaddr)++] = (val>>8)&0xff;
                 break;
-            }
 
-            if ((asmtab[j].zp != -1) && ((val&0xff00)==0) && (NULL == pref))
-            {
-                outbuffer[(*asmaddr)++] = asmtab[j].zp;
-                outbuffer[(*asmaddr)++] = val;
+            case AM_IND:
+                if (asmtab[j].ind == -1) { fprintf(stderr, "Illegal operand: '%s'\n", isolated_line(thisline)); return false; }
+                outbuffer[(*asmaddr)++] = asmtab[j].ind;
+
+                if (NULL != pref)
+                {
+                    if (pref->num[preftyp] >= MAX_REFS)
+                    {
+                        fprintf(stderr, "Too many pending references to '%s' (limit reached at '%s')\n", pref->name, isolated_line(thisline));
+                        exit(EXIT_FAILURE);
+                    }
+
+                    pref->ref[preftyp][pref->num[preftyp]++] = (*asmaddr);
+                }
+
+                outbuffer[(*asmaddr)++] = val&0xff;
+                outbuffer[(*asmaddr)++] = (val>>8)&0xff;
                 break;
-            }
 
-            if (asmtab[j].abs == -1) { fprintf(stderr, "Illegal operand: '%s'\n", isolated_line(thisline)); return false; }
-            outbuffer[(*asmaddr)++] = asmtab[j].abs;
-
-            if (NULL != pref)
-            {
-                if (pref->num[preftyp] >= MAX_REFS)
-                {
-                    fprintf(stderr, "Too many pending references to '%s'\n", pref->name);
-                    exit(EXIT_FAILURE);
-                }
-
-                pref->ref[preftyp][pref->num[preftyp]++] = (*asmaddr);
-            }
-
-            outbuffer[(*asmaddr)++] = val&0xff;
-            outbuffer[(*asmaddr)++] = (val>>8)&0xff;
-            break;
-
-        case AM_IND:
-            if (asmtab[j].ind == -1) { fprintf(stderr, "Illegal operand: '%s'\n", isolated_line(thisline)); return false; }
-            outbuffer[(*asmaddr)++] = asmtab[j].ind;
-
-            if (NULL != pref)
-            {
-                if (pref->num[preftyp] >= MAX_REFS)
-                {
-                    fprintf(stderr, "Too many pending references to '%s'\n", pref->name);
-                    exit(EXIT_FAILURE);
-                }
-
-                pref->ref[preftyp][pref->num[preftyp]++] = (*asmaddr);
-            }
-
-            outbuffer[(*asmaddr)++] = val&0xff;
-            outbuffer[(*asmaddr)++] = (val>>8)&0xff;
-            break;
-
-        case AM_ZPX:
-            if (asmtab[j].zpx == -1) { fprintf(stderr, "Illegal operand: '%s'\n", isolated_line(thisline)); return false; }
-            outbuffer[(*asmaddr)++] = asmtab[j].zpx;
-
-            if (NULL != pref)
-            {
-                if (pref->num[preftyp] >= MAX_REFS)
-                {
-                    fprintf(stderr, "Too many pending references to '%s'\n", pref->name);
-                    exit(EXIT_FAILURE);
-                }
-
-                pref->ref[preftyp][pref->num[preftyp]++] = (*asmaddr);
-            }
-
-            outbuffer[(*asmaddr)++] = val;
-            break;
-
-        case AM_ZPY:
-            if (asmtab[j].zpy == -1) { fprintf(stderr, "Illegal operand: '%s'\n", isolated_line(thisline)); return false; }
-            outbuffer[(*asmaddr)++] = asmtab[j].zpy;
-
-            if (NULL != pref)
-            {
-                if (pref->num[preftyp] >= MAX_REFS)
-                {
-                    fprintf(stderr, "Too many pending references to '%s'\n", pref->name);
-                    exit(EXIT_FAILURE);
-                }
-
-                pref->ref[preftyp][pref->num[preftyp]++] = (*asmaddr);
-            }
-
-            outbuffer[(*asmaddr)++] = val;
-            break;
-
-        case AM_ZIX:
-            if (asmtab[j].zix == -1) { fprintf(stderr, "Illegal operand: '%s'\n", isolated_line(thisline)); return false; }
-            outbuffer[(*asmaddr)++] = asmtab[j].zix;
-
-            if (NULL != pref)
-            {
-                if (pref->num[preftyp] >= MAX_REFS)
-                {
-                    fprintf(stderr, "Too many pending references to '%s'\n", pref->name);
-                    exit(EXIT_FAILURE);
-                }
-
-                pref->ref[preftyp][pref->num[preftyp]++] = (*asmaddr);
-            }
-
-            outbuffer[(*asmaddr)++] = val;
-            break;
-
-        case AM_ZIY:
-            if (asmtab[j].ziy == -1) { fprintf(stderr, "Illegal operand: '%s'\n", isolated_line(thisline)); return false; }
-            outbuffer[(*asmaddr)++] = asmtab[j].ziy;
-
-            if (NULL != pref)
-            {
-                if (pref->num[preftyp] >= MAX_REFS)
-                {
-                    fprintf(stderr, "Too many pending references to '%s'\n", pref->name);
-                    exit(EXIT_FAILURE);
-                }
-
-                pref->ref[preftyp][pref->num[preftyp]++] = (*asmaddr);
-            }
-
-            outbuffer[(*asmaddr)++] = val;
-            break;
-
-        case AM_ABX:
-            if ((asmtab[j].zpx != -1) && ((val&0xff00)==0) && (NULL == pref))
-            {
+            case AM_ZPX:
+                if (asmtab[j].zpx == -1) { fprintf(stderr, "Illegal operand: '%s'\n", isolated_line(thisline)); return false; }
                 outbuffer[(*asmaddr)++] = asmtab[j].zpx;
-                outbuffer[(*asmaddr)++] = val;
-                break;
-            }
 
-            if (asmtab[j].abx == -1) { fprintf(stderr, "Illegal operand: '%s'\n", isolated_line(thisline)); return false; }
-            outbuffer[(*asmaddr)++] = asmtab[j].abx;
-
-            if (NULL != pref)
-            {
-                if (pref->num[preftyp] >= MAX_REFS)
+                if (NULL != pref)
                 {
-                    fprintf(stderr, "Too many pending references to '%s'\n", pref->name);
-                    exit(EXIT_FAILURE);
+                    if (pref->num[preftyp] >= MAX_REFS)
+                    {
+                        fprintf(stderr, "Too many pending references to '%s' (limit reached at '%s')\n", pref->name, isolated_line(thisline));
+                        exit(EXIT_FAILURE);
+                    }
+
+                    pref->ref[preftyp][pref->num[preftyp]++] = (*asmaddr);
                 }
 
-                pref->ref[preftyp][pref->num[preftyp]++] = (*asmaddr);
-            }
+                outbuffer[(*asmaddr)++] = val;
+                break;
 
-            outbuffer[(*asmaddr)++] = val&0xff;
-            outbuffer[(*asmaddr)++] = (val>>8)&0xff;
-            break;
-
-        case AM_ABY:
-            if ((asmtab[j].zpy != -1) && ((val&0xff00)==0 ) && (NULL == pref))
-            {
+            case AM_ZPY:
+                if (asmtab[j].zpy == -1) { fprintf(stderr, "Illegal operand: '%s'\n", isolated_line(thisline)); return false; }
                 outbuffer[(*asmaddr)++] = asmtab[j].zpy;
-                outbuffer[(*asmaddr)++] = val;
-                break;
-            }
 
-            if (asmtab[j].aby == -1) { fprintf(stderr, "Illegal operand: '%s'\n", isolated_line(thisline)); return false; }
-            outbuffer[(*asmaddr)++] = asmtab[j].aby;
-
-            if (NULL != pref)
-            {
-                if (pref->num[preftyp] >= MAX_REFS)
+                if (NULL != pref)
                 {
-                    fprintf(stderr, "Too many pending references to '%s'\n", pref->name);
-                    exit(EXIT_FAILURE);
+                    if (pref->num[preftyp] >= MAX_REFS)
+                    {
+                        fprintf(stderr, "Too many pending references to '%s' (limit reached at '%s')\n", pref->name, isolated_line(thisline));
+                        exit(EXIT_FAILURE);
+                    }
+
+                    pref->ref[preftyp][pref->num[preftyp]++] = (*asmaddr);
                 }
 
-                pref->ref[preftyp][pref->num[preftyp]++] = (*asmaddr);
-            }
-            outbuffer[(*asmaddr)++] = val&0xff;
-            outbuffer[(*asmaddr)++] = (val>>8)&0xff;
-            break;
+                outbuffer[(*asmaddr)++] = val;
+                break;
+
+            case AM_ZIX:
+                if (asmtab[j].zix == -1) { fprintf(stderr, "Illegal operand: '%s'\n", isolated_line(thisline)); return false; }
+                outbuffer[(*asmaddr)++] = asmtab[j].zix;
+
+                if (NULL != pref)
+                {
+                    if (pref->num[preftyp] >= MAX_REFS)
+                    {
+                        fprintf(stderr, "Too many pending references to '%s' (limit reached at '%s')\n", pref->name, isolated_line(thisline));
+                        exit(EXIT_FAILURE);
+                    }
+
+                    pref->ref[preftyp][pref->num[preftyp]++] = (*asmaddr);
+                }
+
+                outbuffer[(*asmaddr)++] = val;
+                break;
+
+            case AM_ZIY:
+                if (asmtab[j].ziy == -1) { fprintf(stderr, "Illegal operand: '%s'\n", isolated_line(thisline)); return false; }
+                outbuffer[(*asmaddr)++] = asmtab[j].ziy;
+
+                if (NULL != pref)
+                {
+                    if (pref->num[preftyp] >= MAX_REFS)
+                    {
+                        fprintf(stderr, "Too many pending references to '%s' (limit reached at '%s')\n", pref->name, isolated_line(thisline));
+                        exit(EXIT_FAILURE);
+                    }
+
+                    pref->ref[preftyp][pref->num[preftyp]++] = (*asmaddr);
+                }
+
+                outbuffer[(*asmaddr)++] = val;
+                break;
+
+            case AM_ABX:
+                if ((asmtab[j].zpx != -1) && ((val&0xff00)==0) && (NULL == pref))
+                {
+                    outbuffer[(*asmaddr)++] = asmtab[j].zpx;
+                    outbuffer[(*asmaddr)++] = val;
+                    break;
+                }
+
+                if (asmtab[j].abx == -1) { fprintf(stderr, "Illegal operand: '%s'\n", isolated_line(thisline)); return false; }
+                outbuffer[(*asmaddr)++] = asmtab[j].abx;
+
+                if (NULL != pref)
+                {
+                    if (pref->num[preftyp] >= MAX_REFS)
+                    {
+                        fprintf(stderr, "Too many pending references to '%s' (limit reached at '%s')\n", pref->name, isolated_line(thisline));
+                        exit(EXIT_FAILURE);
+                    }
+
+                    pref->ref[preftyp][pref->num[preftyp]++] = (*asmaddr);
+                }
+
+                outbuffer[(*asmaddr)++] = val&0xff;
+                outbuffer[(*asmaddr)++] = (val>>8)&0xff;
+                break;
+
+            case AM_ABY:
+                if ((asmtab[j].zpy != -1) && ((val&0xff00)==0 ) && (NULL == pref))
+                {
+                    outbuffer[(*asmaddr)++] = asmtab[j].zpy;
+                    outbuffer[(*asmaddr)++] = val;
+                    break;
+                }
+
+                if (asmtab[j].aby == -1) { fprintf(stderr, "Illegal operand: '%s'\n", isolated_line(thisline)); return false; }
+                outbuffer[(*asmaddr)++] = asmtab[j].aby;
+
+                if (NULL != pref)
+                {
+                    if (pref->num[preftyp] >= MAX_REFS)
+                    {
+                        fprintf(stderr, "Too many pending references to '%s' (limit reached at '%s')\n", pref->name, isolated_line(thisline));
+                        exit(EXIT_FAILURE);
+                    }
+
+                    pref->ref[preftyp][pref->num[preftyp]++] = (*asmaddr);
+                }
+                outbuffer[(*asmaddr)++] = val&0xff;
+                outbuffer[(*asmaddr)++] = (val>>8)&0xff;
+                break;
+        }
     }
 
     if (addsym[0])

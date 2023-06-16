@@ -1,7 +1,7 @@
 #ifndef _ASM6502_H__
 #define _ASM6502_H__
 
-#define MAX_SYMLEN (32)
+#define MAX_SYMLEN (128)
 
 void assemble(const char *src, uint8_t *outbuffer, uint16_t *asmaddr);
 void sym_define(char *symname, uint16_t addr);

@@ -10,6 +10,7 @@
 #include "asm6502.h"
 #include "rotatogreet_tables.h"
 #include "bouncy_tables.h"
+#include "music.h"
 
 uint8_t tapdata[65536];
 uint32_t tapdata_used = 0;
@@ -388,7 +389,7 @@ void gen_rotatogreet(uint16_t *addr)
         }
     }
 
-    sym_define("rotatogreet_frametab", 0x0248);
+    sym_define("rotatogreet_frametab", 0x024e);
     sym_define("rotatogreet_font", *addr);
     sym_define("rotatogreet_font_m35", (*addr)-35); /* Convenient offset during scroll function */
     memcpy(&tapdata[*addr], greetfont, sizeof(greetfont));
@@ -2194,6 +2195,7 @@ int main(int argc, const char *argv[])
     sym_define("ZPROG10PHI",  15);
     sym_define("ZPROG10PCT",  16);
     sym_define("ZPROGMLEND",  17);
+
     sym_define("ZPNPADDRLO",  18);
     sym_define("ZPNPADDRHI",  19);
     sym_define("ZPNPCOUNT",   20);
@@ -2201,11 +2203,47 @@ int main(int argc, const char *argv[])
     sym_define("ZPNPTMP1",    22);
     sym_define("ZPNPTMP2",    23);
     
-    sym_define("ZPSTORY",    24);
+    sym_define("ZPSTORY",     24);
+
+    // Music zero page
+    sym_define("ptDATA",     160);
+    sym_define("ptDATA_hi",  161);
+    sym_define("pt2_DT",     162);
+    sym_define("pt2_DT_hi",  163);
+    sym_define("ACCA",       164);
+    sym_define("ACCB",       165);
+    sym_define("volumeRegister", 166);
+    sym_define("r7",         167);
+    //Some stored PSG registers. They MUST be consecutive.
+    sym_define("PLY_AKY_PSGREGISTER6", 168);
+    sym_define("PLY_AKY_PSGREGISTER11", 169);
+    sym_define("PLY_AKY_PSGREGISTER12", 170);
+    sym_define("PLY_AKY_PSGREGISTER13", 171);
+
 
     /* Demo entry point */
     assemble("demostart:\n"
              "    SEI\n"
+             "    JSR PLY_AKY_INIT\n"
+             // set interrupt routine
+             "    LDA #>irq_func\n"
+             "    STA $245\n"	
+             "    LDA #<irq_func\n"
+             "    STA $246\n"
+         
+             // TIMER 1 6522 
+             "    LDA #%01000000\n"		                                // continuous interrupt / PB7 disabled
+             "    STA $30B\n"    		                                // Auxiliary Control Register
+             "    LDA #%11000000\n"
+             "    STA $30D\n"    		                                // interrupt flag register	(Time Out of Timer 1/Int)
+             "    STA $30E\n"    		                                // interrupt Enable register (Timer 1 + Set)
+         
+             // delay (50Hz)
+             "    LDA #$36\n"
+             "    STA $304\n"                                            // T1C-Lower
+             "    LDA #$4F\n"
+             "    STA $305\n"                                            // T1C-High
+             "    CLI\n"                                                 // INT on!
              "    LDA #19\n"  /* yellow paper */
              "    STA ZPTMP5\n"
              "    JSR scrwipe\n"
@@ -2275,6 +2313,20 @@ int main(int argc, const char *argv[])
              "    LDY ZPSTORY\n"
              "    CMP #$40\n"
              "    RTS\n"
+             "irq_func:\n"
+             "    PHA\n"
+             "    TXA\n"
+             "    PHA\n"
+             "    TYA\n"
+             "    PHA\n"
+             "    JSR PLY_AKY_PLAY\n"
+            "     BIT $304\n"                                            // Clears interrupt (T1CL)
+             "    PLA\n"
+             "    TAY\n"
+             "    PLA\n"
+             "    TAX\n"
+             "    PLA\n"
+             "    RTI\n"
              , tapdata, &addr);
 
     gen_scrwipe(&addr);
@@ -2282,6 +2334,7 @@ int main(int argc, const char *argv[])
     gen_rotatogreet(&addr);
     gen_noproblem(&addr);
     gen_bouncy(&addr);
+    gen_music(&addr);
 
     /* Define a handy table for text screen access (currently only used by scrwipe)*/
     sym_define("scrtab", addr);

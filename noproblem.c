@@ -81,9 +81,7 @@ void gen_scrwipe(uint16_t *addr)
              "    STA ZPWIPETAB,X\n"
              "    LDA ZPTMP\n"
              "    STA ZPWIPEPOS,X\n"
-             "    CLC\n"
-             "    ADC #1\n"
-             "    STA ZPTMP\n"
+             "    INC ZPTMP\n"
              "    DEX\n"
              "    BPL scrwipe_copyloop\n"
              "scrwipe_loop:\n"
@@ -243,19 +241,67 @@ void gen_stripewobbler(uint16_t *addr)
     double ang, calc;
     uint16_t labaddr, smcaddr;
     char label[32];
+    char tmp[1024];
 
-    assemble(".swfinish:\n"
+    assemble("stripewobbler_tabxtozptmp:\n"
+             "    LDA stripewobbler_table,X\n"  // -2
+             "    STA ZPTMP\n"
+             "    INX\n"
+             "    LDA stripewobbler_table,X\n"  // -1
+             "    STA ZPTMP2\n"
+             ".swfinish:\n"
              "    RTS\n"
              "stripewobbler:\n"
              "    LDA #0\n"
+             "    LDY #24\n"
+             ".clrwipetab:\n"
+             "    STA ZPWIPETAB,Y\n"
+             "    DEY\n"
+             "    BPL .clrwipetab\n"
              "    STA ZPSWFRAME\n"
              "    STA ZPSWFRAME2\n"
              "    STA ZPSWTIME\n"
+             "    STA ZPSWFADE\n"
+             "    STA ZPSWSIZE\n"
              "stripewobbler_loop:\n"
-             "    LDY ZPSWTIME\n"
-             "    INY\n"
-             "    STY ZPSWTIME\n"
+             "    LDA ZPSWFADE\n"
+             "    BEQ .notfading\n"
+             "    LDA ZPSWTIME\n"
+             "    AND #1\n"
+             "    BEQ .notfading\n", tapdata, addr);
+    snprintf(tmp, sizeof(tmp),
+             "    LDX #%u\n"
+             "    LDY #3\n"
+             "    JSR stripewobbler_tabxtozptmp\n"
+             "    DEX\n"
+             "    LDA (ZPTMP),Y\n"
              "    BEQ .swfinish\n"
+             ".fadeloop:\n"
+             "    DEX\n"
+             "    DEX\n"
+             "    JSR stripewobbler_tabxtozptmp\n"
+             "    LDA (ZPTMP),Y\n"
+             "    STA ZPTMP3\n"
+             "    INX\n"
+             "    JSR stripewobbler_tabxtozptmp\n"
+             "    LDA ZPTMP3\n"
+             "    STA (ZPTMP),Y\n"
+             "    DEX\n"
+             "    DEX\n"
+             "    DEX\n"
+             "    CPX #0\n"
+             "    BNE .fadeloop\n"
+             "    JSR stripewobbler_tabxtozptmp\n"
+             "    LDA #0\n"
+             "    STA (ZPTMP),Y\n", ((STRIPEWOBBLE_MAXSIZE-STRIPEWOBBLE_MINSIZE)-1)*2);
+    assemble(tmp, tapdata, addr);
+    assemble(".notfading:\n"
+             "    INC ZPSWTIME\n"
+             "    BNE .notfinished\n"
+             "    LDA #1\n"
+             "    STA ZPSWFADE\n"
+             ".notfinished:\n"
+//             "    BEQ .swfinish\n"
              "    LDA #3\n"
              "    CLC\n"
              "    ADC ZPSWFRAME\n"
@@ -267,7 +313,13 @@ void gen_stripewobbler(uint16_t *addr)
              "    STA ZPSWFRAME2\n"
              "    STA ZPSINPOS2\n"
              "    JSR zptmp_set_to_a000\n"
-             "    LDX #200\n"
+             "    LDX ZPSWSIZE\n"
+             "    CPX #200\n"
+             "    BEQ .donegrow\n"
+             "    INX\n"
+             "    STX ZPSWSIZE\n"
+             "    DEC ZPSWTIME\n"
+             ".donegrow:\n"
              "    CLC\n" // Nothing in the loop below should set C, so clear it now (once per frame), and avoid 2 CLCs per scanline later.
              "stripewobbler_drawloop:\n"
              "    LDY ZPSINPOS1\n"
@@ -301,8 +353,7 @@ void gen_stripewobbler(uint16_t *addr)
              "    DEX\n"
              "    BNE stripewobbler_drawloop\n"
              "    JMP stripewobbler_loop\n"
-             ,
-             tapdata, addr);
+             , tapdata, addr);
 
     smcaddr = sym_get("swob_smc_calc");
     sym_define("stripewobbler_smc_lo", smcaddr+1);
@@ -527,7 +578,7 @@ void gen_rotatogreet(uint16_t *addr)
 
     snprintf(tmp, sizeof(tmp),
              "    CMP #%u\n"
-             "    BNE .doadd\n", NUM_ENTRIES(steps)*2 -2);
+             "    BNE .doadd\n", (int)NUM_ENTRIES(steps)*2 -2);
     assemble(tmp, tapdata, addr);
 
     assemble("    TAX\n"
@@ -566,7 +617,7 @@ void gen_rotatogreet(uint16_t *addr)
              "    LDA rotatogreet_cidxtab\n", tapdata, addr);
     snprintf(tmp, sizeof(tmp),
              "    CMP #%u\n"
-             "    BNE rog_bringitin_loop\n", NUM_ENTRIES(steps)*2 -2);
+             "    BNE rog_bringitin_loop\n", (int)NUM_ENTRIES(steps)*2 -2);
     assemble(tmp, tapdata, addr);
 
     assemble("    LDY #0\n"
@@ -842,9 +893,9 @@ void gen_rotatogreet(uint16_t *addr)
              "    LDA ZPTMP\n"
              "    ADC #38\n"
              "    STA ZPTMP\n"
-             "    LDA ZPTMP2\n"
-             "    ADC #0\n"
-             "    STA ZPTMP2\n"
+             "    BCC .ok845\n"
+             "    INC ZPTMP2\n"
+             ".ok845:\n"
              "    INX\n"
              "    CPX #6\n"
              "    BNE .10printloop\n"
@@ -861,9 +912,9 @@ void gen_rotatogreet(uint16_t *addr)
              "    CLC\n"
              "    ADC #228\n"
              "    STA ZPROG10PLO\n"
-             "    LDA ZPROG10PHI\n"
-             "    ADC #0\n"
-             "    STA ZPROG10PHI\n", tapdata, addr);
+             "    BCC .ok864\n"
+             "    INC ZPROG10PHI\n"
+             ".ok864:\n", tapdata, addr);
     smcaddr = sym_get("rotatogreet_texture") + 228*6;
     snprintf(tmp, sizeof(tmp),
         "    LDA ZPROG10PLO\n"
@@ -893,9 +944,9 @@ void gen_rotatogreet(uint16_t *addr)
              "    LDA rog_linetab_lo,X\n"
              "    ADC #$78\n"
              "    STA rog_linetab_lo,X\n"
-             "    LDA rog_linetab_hi,X\n"
-             "    ADC #0\n"
-             "    STA rog_linetab_hi,X\n"
+             "    BCC .ok896\n"
+             "    INC rog_linetab_hi,X\n"
+             ".ok896:\n"
              "    DEX\n"
              "    BPL .rollaway\n"
              "    RTS\n", tapdata, addr);
@@ -1427,9 +1478,9 @@ void gen_noproblem(uint16_t *addr)
              "    CLC\n"
              "    ADC #38\n"
              "    STA ZPTMP\n"
-             "    LDA ZPTMP2\n"
-             "    ADC #0\n"
-             "    STA ZPTMP2\n"
+             "    BCC .ok1430\n"
+             "    INC ZPTMP2\n"
+             ".ok1430:\n"
              "    DEX\n"
              "    RTS\n", tapdata, addr);
 
@@ -1576,7 +1627,7 @@ void gen_noproblem(uint16_t *addr)
                 "    STA ZPNPFIN\n"
                 "    JSR nop_wipein_moveitalong\n"
                 "    JSR nop_waitabit\n"
-                "    JMP nop_waitabit\n", sizeof(colourwipe));
+                "    JMP nop_waitabit\n", (int)sizeof(colourwipe));
             assemble(tmp, tapdata, addr);
         }
     }
@@ -2185,6 +2236,9 @@ int main(int argc, const char *argv[])
     sym_define("ZPSINPOS1",    5);
     sym_define("ZPSINPOS2",    6);
     sym_define("ZPSWTIME",     7);
+    sym_define("ZPSWFADE",     8);
+    sym_define("ZPSWSIZE",     9);
+
     sym_define("ZPROGTROWLO",  8);
     sym_define("ZPROGTROWHI",  9);
     sym_define("ZPROGACCUM",  10);
@@ -2270,9 +2324,9 @@ int main(int argc, const char *argv[])
              "    LDA ZPTMP\n"
              "    ADC #40\n"
              "    STA ZPTMP\n"
-             "    LDA ZPTMP2\n"
-             "    ADC #0\n"
-             "    STA ZPTMP2\n"
+             "    BCC .ok2273:\n"
+             "    INC ZPTMP2\n"
+             ".ok2273:\n"
              "    RTS\n"
              "zpany_add40:\n"
              "    STY ZPSTORY\n"

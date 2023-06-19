@@ -10,7 +10,7 @@
 #include "asm6502.h"
 
 #define MAX_SYMBOLS (4096)
-#define MAX_REFS (512)
+#define MAX_REFS (1024)
 
 enum
 {
@@ -570,6 +570,25 @@ bool try_symref(const char *src, int *offs, uint16_t *symaddr, struct pendingref
     return true;
 }
 
+char *isolated_line(const char *src)
+{
+    int len;
+    static char line[256];
+
+    len = 0;
+    while ((src[len] != 0) && (src[len] != '\n'))
+        len++;
+
+    if (len > 255)
+        len = 255;
+
+    memcpy(line, src, len);
+    line[len] = 0;
+    return line;
+}
+
+
+
 /*
 - AM_IMP=0,
 - AM_IMM,
@@ -619,7 +638,7 @@ static bool decode_operand(const char *ptr, int *type, uint16_t *val, struct pen
             i++;
             if (!try_symref(ptr, &i, &v, pref))
             {
-                fprintf(stderr, "Symbol expected\n");
+                fprintf(stderr, "Symbol expected (%s)\n", isolated_line(ptr));
                 exit(EXIT_FAILURE);
             }
 
@@ -720,23 +739,6 @@ static bool decode_operand(const char *ptr, int *type, uint16_t *val, struct pen
     if (pref)
         *(preftyp) = PRT_ABS16;
     return true;
-}
-
-char *isolated_line(const char *src)
-{
-    int len;
-    static char line[256];
-
-    len = 0;
-    while ((src[len] != 0) && (src[len] != '\n'))
-        len++;
-
-    if (len > 255)
-        len = 255;
-
-    memcpy(line, src, len);
-    line[len] = 0;
-    return line;
 }
 
 static bool assemble_line(const char *src, int offs, uint8_t *outbuffer, uint16_t *asmaddr)
@@ -929,7 +931,7 @@ static bool assemble_line(const char *src, int offs, uint8_t *outbuffer, uint16_
                         k = ((int)val)-((int)((*asmaddr)+1));
                         if ((k < -128) || (k > 127))
                         {
-                            fprintf(stderr, "Too many pending references to '%s' (limit reached at '%s')\n", pref->name, isolated_line(thisline));
+                            fprintf(stderr, "Branch too far on line '%s'\n", isolated_line(thisline));
                             return false;
                         }
                     }

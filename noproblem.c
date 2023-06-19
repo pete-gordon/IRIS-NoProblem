@@ -243,13 +243,25 @@ void gen_stripewobbler(uint16_t *addr)
     char label[32];
     char tmp[1024];
 
+    sym_define("stripewobbler_sintab", *addr);
+    for (ang=0.0f, i=0; i<STRIPEWOBBLE_SINTABSIZE; i++, ang+=((2.0f*3.1419265f)/STRIPEWOBBLE_SINTABSIZE))
+    {
+        calc = (sin(ang) * (STRIPEWOBBLE_MIDDLE/2)) + (STRIPEWOBBLE_MIDDLE/2); /* + STRIPEWOBBLE_MINSIZE  would give us from MIN to MAX, but we actually want 0 to MAX-MIN */
+        //printf("pos %d: ang = %u\n", i, (uint8_t)calc);
+        tapdata[(*addr)++] = ((uint8_t)(calc/2))*2; /* Pre-multiply by 2 as we use it to index into a jumptable */
+    }
+
     assemble("stripewobbler_tabxtozptmp:\n"
              "    LDA stripewobbler_table,X\n"  // -2
              "    STA ZPTMP\n"
              "    INX\n"
              "    LDA stripewobbler_table,X\n"  // -1
              "    STA ZPTMP2\n"
+             "    RTS\n"
              ".swfinish:\n"
+             "    LDA #$08\n"  /* Actually waiting for $0900, but the next effect has a setup delay */
+             "    LDX #$e0\n"
+             "    JSR wait_mustim\n"
              "    RTS\n"
              "stripewobbler:\n"
              "    LDA #0\n"
@@ -266,6 +278,7 @@ void gen_stripewobbler(uint16_t *addr)
              "stripewobbler_loop:\n"
              "    LDA ZPSWFADE\n"
              "    BEQ .notfading\n"
+             "    INC ZPSWTIME\n"
              "    LDA ZPSWTIME\n"
              "    AND #1\n"
              "    BEQ .notfading\n", tapdata, addr);
@@ -296,8 +309,10 @@ void gen_stripewobbler(uint16_t *addr)
              "    STA (ZPTMP),Y\n", ((STRIPEWOBBLE_MAXSIZE-STRIPEWOBBLE_MINSIZE)-1)*2);
     assemble(tmp, tapdata, addr);
     assemble(".notfading:\n"
-             "    INC ZPSWTIME\n"
-             "    BNE .notfinished\n"
+             "    LDA #$07\n"
+             "    LDX #$C0\n"
+             "    JSR cmp_mustim\n"
+             "    BCS .notfinished\n"
              "    LDA #1\n"
              "    STA ZPSWFADE\n"
              ".notfinished:\n"
@@ -358,14 +373,6 @@ void gen_stripewobbler(uint16_t *addr)
     smcaddr = sym_get("swob_smc_calc");
     sym_define("stripewobbler_smc_lo", smcaddr+1);
     sym_define("stripewobbler_smc_hi", smcaddr+2);
-
-    sym_define("stripewobbler_sintab", *addr);
-    for (ang=0.0f, i=0; i<STRIPEWOBBLE_SINTABSIZE; i++, ang+=((2.0f*3.1419265f)/STRIPEWOBBLE_SINTABSIZE))
-    {
-        calc = (sin(ang) * (STRIPEWOBBLE_MIDDLE/2)) + (STRIPEWOBBLE_MIDDLE/2); /* + STRIPEWOBBLE_MINSIZE  would give us from MIN to MAX, but we actually want 0 to MAX-MIN */
-        //printf("pos %d: ang = %u\n", i, (uint8_t)calc);
-        tapdata[(*addr)++] = ((uint8_t)(calc/2))*2; /* Pre-multiply by 2 as we use it to index into a jumptable */
-    }
 
     for (i=STRIPEWOBBLE_MINSIZE; i<STRIPEWOBBLE_MAXSIZE; i++)
         gen_stripewobblerline(i, addr);
@@ -835,9 +842,7 @@ void gen_rotatogreet(uint16_t *addr)
              "    ADC #52\n"
              "    STA ZPTMP5\n"
              "    BCC rogscroll_rowloop\n"
-             "    LDY ZPTMP6\n"
-             "    INY\n"
-             "    STY ZPTMP6\n"
+             "    INC ZPTMP6\n"
              "    BPL rogscroll_rowloop\n"
              ".done:\n"
              "    RTS\n", tapdata, addr);
@@ -1625,28 +1630,12 @@ void gen_noproblem(uint16_t *addr)
             snprintf(tmp, sizeof(tmp),
                 "    LDA #%u\n"
                 "    STA ZPNPFIN\n"
-                "    JSR nop_wipein_moveitalong\n"
-                "    JSR nop_waitabit\n"
-                "    JMP nop_waitabit\n", (int)sizeof(colourwipe));
+                "    JMP nop_wipein_moveitalong\n", (int)sizeof(colourwipe));
             assemble(tmp, tapdata, addr);
         }
     }
 
     resolve_and_remove_temporary_syms(tapdata);
-
-    assemble("nop_waitabit:\n"
-             "    LDY #0\n"
-             ".delay1:\n"
-             "    LDX #0\n"
-             ".delay2:\n"
-             "    NOP\n"
-             "    NOP\n"
-             "    NOP\n"
-             "    DEX\n"
-             "    BNE .delay2\n"
-             "    DEY\n"
-             "    BNE .delay1\n"
-             "    RTS\n", tapdata, addr);
 
     assemble("noproblem:\n"
              "    JSR zptmp_set_to_a000\n"
@@ -1663,13 +1652,22 @@ void gen_noproblem(uint16_t *addr)
              "    JSR zptmp_add40\n"
              "    DEX\n"
              "    BNE .loop1\n"
-             "    JSR nop_waitabit\n"
              "    JSR nop_printstr0\n"
+             "    LDA #$00\n"
+             "    LDX #$C0\n"
+             "    JSR wait_mustim\n"
              "    JSR nop_printstr1\n"
+             "    LDA #$01\n"
+             "    LDX #$80\n"
+             "    JSR wait_mustim\n"
              "    JSR nop_printstr2\n"
+             "    LDA #$02\n"
+             "    LDX #$40\n"
+             "    JSR wait_mustim\n"
              "    JSR nop_printstr3\n"
-             "    JSR nop_waitabit\n"
-             "    JMP nop_waitabit\n", tapdata, addr);
+             "    LDA #$03\n"
+             "    LDX #$00\n"
+             "    JMP wait_mustim\n", tapdata, addr);
     resolve_and_remove_temporary_syms(tapdata);
 }
 
@@ -2183,6 +2181,458 @@ void gen_bouncy(uint16_t *addr)
              "    BNE bouncy_clr_part\n"
              "    RTS\n", tapdata, addr);
 
+    resolve_and_remove_temporary_syms(tapdata);
+}
+
+void gen_credits(uint16_t *addr)
+{
+    int i, j;
+    char tmp[1024];
+    uint16_t caddr;
+    const char *credits[] = { "CODE AND GFX", "XERON", "MUSIC", "HOFFMAN" };
+
+    for (i=0; i<NUM_ENTRIES(credits); i++)
+    {
+        snprintf(tmp, sizeof(tmp), "credit_str%u", i);
+        sym_define(tmp, *addr);
+        for (j=0; credits[i][j]; j++)
+        {
+            if ((credits[i][j] >= 'A') && (credits[i][j] <= 'Z'))
+            {
+                tapdata[(*addr)++] = (credits[i][j]-'A') * 2;
+                continue;
+            }
+            tapdata[(*addr)++] = 0xff;
+        }
+        tapdata[(*addr)++] = 0xc0;
+    }
+
+    caddr = sym_get("stripewobbler"); /* Re-use stripewobbler memory for text buffer */
+    sym_define("credits_text", caddr);
+    sym_define("credits_text_b", caddr+(37*24));
+    caddr = sym_get("rotatogreet");   /* Re-use rotatogreet memory for stars buffers */
+    sym_define("credits_rowtab_lo", caddr);
+    sym_define("credits_rowtab_hi", caddr+200);
+    sym_define("credits_startab", caddr+400);
+    sym_define("credits_startab_m1", caddr+399);
+
+//    sym_define("credits_tab", *addr);
+//    sym_define("credits_tab_pl1", (*addr)+1);
+//    for (i=0; i<NUM_ENTRIES(credits); i++)
+//    {
+//        snprintf(tmp, sizeof(tmp), "credit_str%u", i);
+//        caddr = sym_get(tmp);
+//        tapdata[(*addr)++] = caddr & 0xff;
+//        tapdata[(*addr)++] = caddr >> 8;
+//    }
+
+    caddr = sym_get("credits_text");
+
+    assemble("credits:\n"
+             "    JSR zptmp_set_to_a000\n"
+             "    LDX #0\n"
+             "    STX ZPCRDCOFF\n"
+             ".mktabloop:\n"
+             "    LDY #39\n"
+             "    LDA #16\n"
+             ".clritloop:\n"
+             "    STA (ZPTMP),Y\n"
+             "    DEY\n"
+             "    BPL .clritloop\n"
+             "    LDA ZPTMP\n"
+             "    STA credits_rowtab_lo,X\n"
+             "    CLC\n"
+             "    ADC #40\n"
+             "    STA ZPTMP\n"
+             "    LDA ZPTMP2\n"
+             "    STA credits_rowtab_hi,X\n"
+             "    ADC #0\n"
+             "    STA ZPTMP2\n"
+             "    INX\n"
+             "    CMP #200\n"
+             "    BNE .mktabloop\n"
+
+             "    LDX #0\n"
+             "credits_starsetup:\n"
+             "    LDA credits_startab,X\n"
+             "    EOR $0308\n"
+             "    CMP #199\n"
+             "    BCC .yok\n"
+             "    SEC\n"
+             "    SBC #200\n"
+             ".yok:\n"
+             "    STA credits_startab,X\n"
+             "    INX\n"
+             "    LDA credits_startab,X\n"
+             "    EOR $0308\n"
+             "    AND #63\n"
+             "    CMP #40\n"
+             "    BCC .xok\n"
+             "    SEC\n"
+             "    SBC #40\n"
+             ".xok:\n"
+             "    STA credits_startab,X\n"
+             "    INX\n"
+             "    CPX #40\n"
+             "    BNE credits_starsetup\n"
+
+             "    LDA #>credits_text\n"
+             "    STA ZPTMP\n"
+             "    LDA #<credits_text\n"
+             "    STA ZPTMP2\n"
+             "    LDX #73\n"
+             ".clrloop2:\n"
+             "    LDY #23\n"
+             "    LDA #16\n"
+             ".clrloop1:\n"
+             "    STA (ZPTMP),Y\n"
+             "    DEY\n"
+             "    BPL .clrloop1\n"
+             "    LDA ZPTMP\n"
+             "    CLC\n"
+             "    ADC #24\n"
+             "    STA ZPTMP\n"
+             "    BCC .boop2235\n"
+             "    INC ZPTMP2\n"
+             ".boop2235:\n"
+             "    DEX\n"
+             "    BPL .clrloop2\n", tapdata, addr);
+
+    resolve_and_remove_temporary_syms(tapdata);
+
+    snprintf(tmp, sizeof(tmp),
+             "    LDA #%u\n"
+             "    STA ZPTMP\n"
+             "    LDA #%u\n"
+             "    STA ZPTMP2\n", (caddr+24)&0xff, (caddr+24)>>8);
+    assemble(tmp, tapdata, addr);
+    assemble("    LDA #>credit_str0\n"
+             "    STA ZPTMP3\n"
+             "    LDA #<credit_str0\n"
+             "    STA ZPTMP4\n"
+             "    JSR credit_printstr\n", tapdata, addr);
+    snprintf(tmp, sizeof(tmp),
+             "    LDA #%u\n"
+             "    STA ZPTMP\n"
+             "    LDA #%u\n"
+             "    STA ZPTMP2\n", (caddr+(24*19)+7)&0xff, (caddr+(24*19)+7)>>8);
+    assemble(tmp, tapdata, addr);
+    assemble("    LDA #>credit_str1\n"
+             "    STA ZPTMP3\n"
+             "    LDA #<credit_str1\n"
+             "    STA ZPTMP4\n"
+             "    JSR credit_printstr\n", tapdata, addr);
+    snprintf(tmp, sizeof(tmp),
+             "    LDA #%u\n"
+             "    STA ZPTMP\n"
+             "    LDA #%u\n"
+             "    STA ZPTMP2\n", (caddr+(24*38)+7)&0xff, (caddr+(24*38)+7)>>8);
+    assemble(tmp, tapdata, addr);
+    assemble("    LDA #>credit_str2\n"
+             "    STA ZPTMP3\n"
+             "    LDA #<credit_str2\n"
+             "    STA ZPTMP4\n"
+             "    JSR credit_printstr\n", tapdata, addr);
+    snprintf(tmp, sizeof(tmp),
+             "    LDA #%u\n"
+             "    STA ZPTMP\n"
+             "    LDA #%u\n"
+             "    STA ZPTMP2\n", (caddr+(24*56)+5)&0xff, (caddr+(24*56)+5)>>8);
+    assemble(tmp, tapdata, addr);
+    assemble("    LDA #>credit_str3\n"
+             "    STA ZPTMP3\n"
+             "    LDA #<credit_str3\n"
+             "    STA ZPTMP4\n"
+             "    JSR credit_printstr\n"
+             "credits_loop1:\n"
+             "    JSR credits_dostars\n"
+             "    JSR credits_drawframe\n"
+             "    JSR credits_cyclecols\n"
+             "    LDA #$16\n"
+             "    LDX #$80\n"
+             "    JSR cmp_mustim\n"
+             "    BCS credits_loop1\n"
+
+             "    LDA #>credits_text_b\n"
+             "    STA credits_smc_lo\n"
+             "    LDA #<credits_text_b\n"
+             "    STA credits_smc_hi\n"
+
+             "credits_loop2:\n"
+             "    JSR credits_dostars\n"
+             "    JSR credits_drawframe\n"
+             "    JSR credits_cyclecols\n"
+             "    LDA #$18\n"
+             "    LDX #$20\n"
+             "    JSR cmp_mustim\n"
+             "    BCS credits_loop2\n"
+             "    RTS\n"
+
+             "credits_cyclecols:\n"
+             "    LDX #60\n"
+             "    LDY #0\n"
+             "    LDA credits_rowtab_lo,X\n"
+             "    STA ZPTMP\n"
+             "    LDA credits_rowtab_hi,X\n"
+             "    STA ZPTMP2\n"
+             ".moveit_top:\n"
+             "    INX\n"
+             "    JSR credits_slamitin\n"
+             "    CPX #99\n"
+             "    BNE .moveit_top\n"
+             "    LDX ZPCRDCOFF\n"
+             "    LDA nop_wipecols,X\n"
+             "    AND #7\n"
+             "    STA (ZPTMP3),Y\n"
+             "    LDX #149\n"
+             "    LDY #0\n"
+             "    LDA credits_rowtab_lo,X\n"
+             "    STA ZPTMP\n"
+             "    LDA credits_rowtab_hi,X\n"
+             "    STA ZPTMP2\n"
+             ".moveit_bot:\n"
+             "    DEX\n"
+             "    JSR credits_slamitin\n"
+             "    CPX #100\n"
+             "    BNE .moveit_bot\n"
+             "    LDX ZPCRDCOFF\n"
+             "    LDA nop_wipecols,X\n"
+             "    AND #7\n"
+             "    STA (ZPTMP3),Y\n"
+             "    INX\n"
+             "    CPX #23\n"
+             "    BNE .boop2401\n"
+             "    LDX #0\n"
+             ".boop2401:\n"
+             "    STX ZPCRDCOFF\n"
+             "    RTS\n"
+
+             "credits_slamitin:\n"
+             "    LDA credits_rowtab_lo,X\n"
+             "    STA ZPTMP3\n"
+             "    LDA credits_rowtab_hi,X\n"
+             "    STA ZPTMP4\n"
+             "    LDA (ZPTMP3),Y\n"
+             "    STA (ZPTMP),Y\n"
+             "    LDA ZPTMP3\n"
+             "    STA ZPTMP\n"
+             "    LDA ZPTMP4\n"
+             "    STA ZPTMP2\n"
+             "    RTS\n"
+
+             "credits_dostars:\n"
+             "    JSR zptmp_set_to_a000\n"
+             "    LDX #0\n"  /* star counter */
+             "credits_starloop:\n"
+             "    LDY credits_startab,X\n" /* ypos */
+             "    LDA credits_rowtab_lo,Y\n"
+             "    STA ZPTMP3\n"
+             "    LDA credits_rowtab_hi,Y\n"
+             "    STA ZPTMP4\n"
+             "    INX\n"
+             "    LDY credits_startab,X\n" /* xpos */
+             "    CPY #40\n"
+             "    BCS .dontdraw2358\n"
+             "    CPY #0\n"
+             "    BEQ .dontdraw2358\n"
+             "    LDA (ZPTMP3),Y\n"
+             "    CMP #16\n"
+             "    BNE .dontdraw2358\n"
+             "    LDA #23\n"
+             "    STA (ZPTMP3),Y\n"
+             ".dontdraw2358:\n"
+             "    INY\n"
+             "    CPY #40\n"
+             "    BCS .dontdraw2367\n"
+             "    CPY #0\n"
+             "    BEQ .dontdraw2367\n"
+             "    LDA (ZPTMP3),Y\n"
+             "    CMP #23\n"
+             "    BEQ .dodraw2367\n"
+             "    CMP #16\n"
+             "    BNE .dontdraw2367\n"
+             ".dodraw2367:\n"
+             "    LDA #22\n"
+             "    STA (ZPTMP3),Y\n"
+             ".dontdraw2367:\n"
+             "    INY\n"
+             "    CPY #40\n"
+             "    BCS .dontdraw2376\n"
+             "    CPY #0\n"
+             "    BEQ .dontdraw2376\n"
+             "    LDA (ZPTMP3),Y\n"
+             "    CMP #22\n"
+             "    BEQ .dodraw2376\n"
+             "    CMP #16\n"
+             "    BNE .dontdraw2376\n"
+             ".dodraw2376:\n"
+             "    LDA #16\n"
+             "    STA (ZPTMP3),Y\n"
+             ".dontdraw2376:\n"
+             ".donestar:\n"
+             "    LDY credits_startab,X\n"
+             "    DEY\n"
+             "    CPY #$FE\n"
+             "    BNE .starmove\n"
+             "    LDY #40\n"
+             "    LDA credits_startab_m1,X\n"
+             "    EOR $0308\n"
+             "    CMP #199\n"
+             "    BCC .yok\n"
+             "    SEC\n"
+             "    SBC #200\n"
+             ".yok:\n"
+             "    STA credits_startab_m1,X\n"
+             ".starmove:\n"
+             "    TYA\n"
+             "    STA credits_startab,X\n"
+             "    INX\n"
+             "    CPX #40\n"
+             "    BEQ .done\n"
+             "    JMP credits_starloop\n"
+             ".done:\n"
+             "    RTS\n", tapdata, addr);
+
+    resolve_and_remove_temporary_syms(tapdata);
+
+    assemble("credits_drawframe:\n"
+             "    LDA #$68\n"
+             "    STA ZPTMP\n"
+             "    LDA #$A9\n"
+             "    STA ZPTMP2\n"
+             "credits_smccalc:\n"
+             "    LDA #>credits_text\n"
+             "    STA ZPTMP3\n"
+             "    LDA #<credits_text\n"
+             "    STA ZPTMP4\n"
+
+             "    LDA ZPSINPOS1\n"
+             "    STA ZPSINPOS2\n"
+             "    CLC\n"
+             "    ADC #11\n"
+             "    STA ZPSINPOS1\n"
+
+             "    LDX #36\n"
+             ".copyloop1:\n"
+             "    LDY ZPSINPOS2\n"
+             "    LDA stripewobbler_sintab,Y\n"
+             "    LSR\n"
+             "    LSR\n"
+             "    LSR\n"
+             "    STA ZPCRDCNT\n"
+             "    TYA\n"
+             "    SEC\n"
+             "    SBC #9\n"
+             "    STA ZPSINPOS2\n"
+             ".copyloop1b:\n"
+             "    LDY #23\n"
+             ".copyloop2:\n"
+             "    LDA (ZPTMP3),Y\n"
+             "    STA (ZPTMP),Y\n"
+             "    DEY\n"
+             "    LDA (ZPTMP3),Y\n"
+             "    STA (ZPTMP),Y\n"
+             "    DEY\n"
+             "    LDA (ZPTMP3),Y\n"
+             "    STA (ZPTMP),Y\n"
+             "    DEY\n"
+             "    LDA (ZPTMP3),Y\n"
+             "    STA (ZPTMP),Y\n"
+             "    DEY\n"
+             "    BPL .copyloop2\n"
+             "    JSR zptmp_add40\n"
+
+             "    LDA ZPCRDCNT\n"
+             "    BEQ .moveon\n"
+             "    DEC ZPCRDCNT\n"
+             "    BNE .copyloop1b\n"
+
+             ".moveon:\n"
+             "    LDA ZPTMP3\n"
+             "    CLC\n"
+             "    ADC #24\n"
+             "    STA ZPTMP3\n"
+             "    BCC .boop2306\n"
+             "    INC ZPTMP4\n"
+             ".boop2306:\n"
+
+             "    DEX\n"
+             "    BPL .copyloop1\n"
+             "    RTS\n"
+
+             "credit_printstr:\n"
+             "    LDY #0\n"
+             ".printit_loop:\n"
+             "    LDA (ZPTMP3),Y\n"
+             "    BPL .normalchar\n"
+
+             "    CMP #$C0\n"
+             "    BEQ .printit_finished\n"
+
+             "    LDA ZPTMP\n"
+             "    CLC\n"
+             "    ADC #2\n"
+             "    STA ZPTMP\n"
+             "    BCC .printit_donespc\n"
+             "    INC ZPTMP2\n"
+             "    BNE .printit_donespc\n"
+
+             ".normalchar:\n"
+             "    CLC\n"
+             "    ADC #>rotatogreet_font\n"
+             "    STA ZPTMP5\n"
+             "    LDA #<rotatogreet_font\n"
+             "    ADC #0\n"
+             "    STA ZPTMP6\n"
+
+             "    STY ZPSTORY\n"
+             "    LDX #16\n"
+             ".printchr_loop:\n"
+             "    LDY #0\n"
+             "    LDA (ZPTMP5),Y\n"
+             "    ORA #$40\n"
+             "    STA (ZPTMP),Y\n"
+             "    INY\n"
+             "    LDA (ZPTMP5),Y\n"
+             "    ORA #$40\n"
+             "    STA (ZPTMP),Y\n"
+
+             "    LDA ZPTMP\n"
+             "    CLC\n"
+             "    ADC #24\n"
+             "    STA ZPTMP\n"
+             "    BCC .dontinchi1\n"
+             "    INC ZPTMP2\n"
+             ".dontinchi1:\n"
+             "    LDA ZPTMP5\n"
+             "    CLC\n"
+             "    ADC #52\n"
+             "    STA ZPTMP5\n"
+             "    BCC .dontinchi\n"
+             "    INC ZPTMP6\n"
+             ".dontinchi:\n"
+             "    DEX\n"
+             "    BNE .printchr_loop\n", tapdata, addr);
+    snprintf(tmp, sizeof(tmp),
+             "    LDA ZPTMP\n"
+             "    SEC\n"
+             "    SBC #%u\n"
+             "    STA ZPTMP\n"
+             "    LDA ZPTMP2\n"
+             "    SBC #%u\n"
+             "    STA ZPTMP2\n", ((16*24)-2) & 0xff, ((16*24)-2) >> 8);
+    assemble(tmp, tapdata, addr);
+    assemble("    LDY ZPSTORY\n"
+             ".printit_donespc:\n"
+             "    INY\n"
+             "    BNE .printit_loop\n"
+             ".printit_finished:\n"
+             "    CLC\n"
+             "    RTS\n", tapdata, addr);
+
+    caddr = sym_get("credits_smccalc");
+    sym_define("credits_smc_lo", caddr+1);
+    sym_define("credits_smc_hi", caddr+5);
 
     resolve_and_remove_temporary_syms(tapdata);
 }
@@ -2258,6 +2708,10 @@ int main(int argc, const char *argv[])
     sym_define("ZPNPTMP2",    23);
     
     sym_define("ZPSTORY",     24);
+    sym_define("ZPSTORX",     25);
+
+    sym_define("ZPCRDCNT",    26);
+    sym_define("ZPCRDCOFF",   27);
 
     // Music zero page
     sym_define("ptDATA",     160);
@@ -2273,6 +2727,9 @@ int main(int argc, const char *argv[])
     sym_define("PLY_AKY_PSGREGISTER11", 169);
     sym_define("PLY_AKY_PSGREGISTER12", 170);
     sym_define("PLY_AKY_PSGREGISTER13", 171);
+
+    sym_define("ZPMUSTIMLO", 172);
+    sym_define("ZPMUSTIMHI", 173);
 
 
     /* Demo entry point */
@@ -2297,7 +2754,9 @@ int main(int argc, const char *argv[])
              "    STA $304\n"                                            // T1C-Lower
              "    LDA #$4F\n"
              "    STA $305\n"                                            // T1C-High
-             "    CLI\n"                                                 // INT on!
+             "    LDA #0\n"
+             "    STA ZPMUSTIMLO\n"
+             "    STA ZPMUSTIMHI\n"
              "    LDA #19\n"  /* yellow paper */
              "    STA ZPTMP5\n"
              "    JSR scrwipe\n"
@@ -2306,9 +2765,11 @@ int main(int argc, const char *argv[])
              "    JSR scrwipe\n"
              "    LDA #30\n" /* switch to hires */
              "    STA $BB80\n"
+             "    CLI\n"                                                 // INT on!
              "    JSR noproblem\n"
              "    JSR stripewobbler\n"
              "    JSR rotatogreet\n"
+             "    JSR credits\n"
              "    JSR bouncy\n"
              "demoend:\n"
              "    JMP demoend\n"
@@ -2354,6 +2815,16 @@ int main(int argc, const char *argv[])
              "    STA $00,Y\n"
              "    LDY ZPSTORY\n"
              "    RTS\n"
+             "cmp_mustim:\n"
+             "    CMP ZPMUSTIMHI\n"
+             "    BNE .mdonecmp\n"
+             "    CPX ZPMUSTIMLO\n"
+             ".mdonecmp:\n"
+             "    RTS\n"
+             "wait_mustim:\n"
+             "    JSR cmp_mustim\n"
+             "    BCS wait_mustim\n"
+             "    RTS\n"
              "cmp_screenend:\n"
              "    STY ZPSTORY\n"
              "    TAY\n"
@@ -2374,7 +2845,11 @@ int main(int argc, const char *argv[])
              "    TYA\n"
              "    PHA\n"
              "    JSR PLY_AKY_PLAY\n"
-            "     BIT $304\n"                                            // Clears interrupt (T1CL)
+             "    BIT $304\n"                                            // Clears interrupt (T1CL)
+             "    INC ZPMUSTIMLO\n"
+             "    BNE .noinchi\n"
+             "    INC ZPMUSTIMHI\n"
+             ".noinchi:\n"
              "    PLA\n"
              "    TAY\n"
              "    PLA\n"
@@ -2388,6 +2863,7 @@ int main(int argc, const char *argv[])
     gen_rotatogreet(&addr);
     gen_noproblem(&addr);
     gen_bouncy(&addr);
+    gen_credits(&addr);
     gen_music(&addr);
 
     /* Define a handy table for text screen access (currently only used by scrwipe)*/

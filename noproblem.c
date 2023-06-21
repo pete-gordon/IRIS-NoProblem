@@ -923,7 +923,6 @@ void gen_rotatogreet(uint16_t *addr)
         "    LDA #1\n"
         "    STA ZPROGMLEND\n"
         ".keepgoing:\n"
-        "bpme:\n"
         "    DEC ZPROG10PDB\n"
         "    BPL .doubledashit\n"
         "    RTS\n", (smcaddr >> 8) ^ (smcaddr&0xff));
@@ -1757,11 +1756,12 @@ void gen_bouncy(uint16_t *addr)
              "    LDA ZPBLYPOS\n"
              "    LSR\n"
              "    STA ZPBLLASTY\n"
-             "    CLC\n"
              "    STA ZPTMP\n"
              "    LDA #0\n"
              "    STA ZPTMP2\n"
+             "bouncy_draw_off:\n"
              "    LDX #3\n"
+             "    CLC\n"
              ".loopo1:\n"
              "    ROL ZPTMP\n"
              "    ROL ZPTMP2\n"
@@ -1912,27 +1912,42 @@ void gen_bouncy(uint16_t *addr)
              "    LDA #0\n"
              "    STA ZPBLXPOS\n"
              "    STA ZPBLYPOS\n"
-             "    JSR zptmp_set_to_a000\n"
-             "    LDX #120\n"
-             "    LDA #7\n"
-             "    STA ZPTMP3\n"
-             "    STA ZPTMP5\n"
-             "    LDA #16\n"
-             "    STA ZPTMP4\n"
-             "    JSR bouncy_clr_part_nolines\n"
-             "    LDX #40\n"
-             "    LDA #20\n"
-             "    STA ZPTMP4\n"
-             "    LDA #0\n"
-             "    STA ZPBLFLTABO\n"
-             "    STA ZPBLFLLINE\n"
-             "    JSR bouncy_clr_part\n"
-             "    LDX #40\n"
-             "    LDA #6\n"
-             "    STA ZPTMP3\n"
-             "    LDA #5\n"
-             "    STA ZPTMP5\n"
-             "    JSR bouncy_clr_part\n"
+             "    LDA #$40\n"
+             "    STA credits_cls_smc\n"
+             "    JSR credits_cls\n"
+             "    LDA #199\n"
+             "    STA ZPBLFLPOS\n"
+             ".floor_in:\n"
+             "    JSR bouncy_movelines\n"
+             "    DEC ZPBLFLPOS\n"
+             "    LDA ZPBLFLPOS\n"
+             "    LDX #0\n"
+             ".floor_in_delay:\n"
+             "    DEX\n"
+             "    BNE .floor_in_delay\n"
+             "    CMP #120\n"
+             "    BNE .floor_in\n"
+//             "    JSR zptmp_set_to_a000\n"
+//             "    LDX #120\n"
+//             "    LDA #7\n"
+//             "    STA ZPTMP3\n"
+//             "    STA ZPTMP5\n"
+//             "    LDA #16\n"
+//             "    STA ZPTMP4\n"
+//             "    JSR bouncy_clr_part_nolines\n"
+//             "    LDX #40\n"
+//             "    LDA #20\n"
+//             "    STA ZPTMP4\n"
+//             "    LDA #0\n"
+//             "    STA ZPBLFLTABO\n"
+//             "    STA ZPBLFLLINE\n"
+//             "    JSR bouncy_clr_part\n"
+//             "    LDX #40\n"
+//             "    LDA #6\n"
+//             "    STA ZPTMP3\n"
+//             "    LDA #5\n"
+//             "    STA ZPTMP5\n"
+//             "    JSR bouncy_clr_part\n"
              "    LDA #$78\n"
              "    STA ZPTMP\n"
              "    LDA #$A0\n"
@@ -1942,6 +1957,8 @@ void gen_bouncy(uint16_t *addr)
              "    STA ZPBLXPOS\n"
              "    LDA #10\n"
              "    STA ZPBLYPOS\n"
+             "    LDA #120\n"
+             "    STA ZPBLFLPOS\n"
              "bouncy_loop:\n"
              "    JSR bouncy_draw\n"
              "    JSR bouncy_draw_reflection\n"
@@ -2078,9 +2095,106 @@ void gen_bouncy(uint16_t *addr)
              "    DEX\n"
              "    BNE .clearrows\n", (((BALL_W*2)+5)/6)+1);
     assemble(tmp, tapdata, addr);
-    assemble("    JMP bouncy_loop\n", tapdata, addr);
+    assemble("    LDA #$1B\n"
+             "    LDX #$80\n"
+             "    JSR cmp_mustim\n"
+             "    BCC .floor_out\n"
+             "    JMP bouncy_loop\n"
+             ".floor_out:\n"
+             "    INC ZPBLFLPOS\n"
+             "    LDA ZPBLFLPOS\n"
+             "    CMP #200\n"
+             "    BEQ .floor_out_done\n"
+             "    JSR bouncy_movelines\n"
+             "    LDX #0\n"
+             ".floor_out_delay:\n"
+             "    DEX\n"
+             "    BNE .floor_out_delay\n"
+             "    JMP .floor_out\n"
+             ".floor_out_done:\n"
+             "    LDA #16\n" // crappy fixup
+             "    STA $BEF0\n"
+             "    STA $BF18\n"
+             "    LDA #0\n"
+             "    STA $BEF1\n"
+             "    STA $BF19,Y\n"
+             "    LDA ZPBLYPOS\n"
+             "    LSR\n"
+             "    STA ZPBLYPOS\n"
+             "    LDA ZPBLDY\n"
+             "    LSR\n"
+             "    STA ZPBLDY\n"
+             "    LDA #$EA\n"
+             "    STA bdraw_smc\n"
+             ".balls_out:\n"
+             "    LDA ZPBLYPOS\n"
+             "    CLC\n"
+             "    ADC ZPBLDY\n"
+             "bpme:\n"
+             "    CMP #200\n"
+             "    BCS .ball_gone\n"
+             "    STA ZPBLYPOS\n"
+
+             "    LDY ZPBLDY\n"
+             "    CPY #10\n"
+             "    BEQ .tvel2\n"
+             "    INY\n"
+             "    STY ZPBLDY\n"
+             ".tvel2:\n"
+             "    LDA ZPBLYPOS\n"
+             "    STA ZPTMP\n"
+             "    LDA #0\n"
+             "    STA ZPTMP2\n"
+             "    LDA ZPBLLASTLO\n"
+             "    STA ZPBLRLSTLO\n"
+             "    LDA ZPBLLASTHI\n"
+             "    STA ZPBLRLSTHI\n"
+             "    JSR bouncy_draw_off\n", tapdata, addr);
+    snprintf(tmp, sizeof(tmp),
+             ".clritloop2:\n"
+             "    LDY #%u\n"
+             ".clritloop:\n"
+             "    LDA #>ZPBLRLSTLO\n"
+             "    JSR cmp_screenend\n"
+             "    BCS .balls_out\n"
+             "    LDA #$40\n"
+             "    STA (ZPBLRLSTLO),Y\n"
+             "    DEY\n"
+             "    BPL .clritloop\n", (((BALL_W*2)+5)/6)+1);
+    assemble(tmp, tapdata, addr);
+    assemble("    LDA #>ZPBLRLSTLO\n"
+             "    JSR zpany_add40\n"
+             "    LDA ZPBLRLSTHI\n"
+             "    CMP ZPBLLASTHI\n"
+             "    BEQ .trylo\n"
+             "    BCS .caughtball\n"
+             "    BCC .clritloop2\n"
+             ".trylo:\n"
+             "    LDA ZPBLRLSTLO\n"
+             "    CMP ZPBLLASTLO\n"
+             "    BCC .clritloop2\n"
+             ".caughtball:\n"
+             "    JMP .balls_out\n"
+             ".ball_gone:\n"
+             "    RTS\n", tapdata, addr);
 
     assemble("bouncy_movelines:\n"
+             "    JSR zptmp_set_to_a000\n"
+             "    LDA #200\n"
+             "    STA ZPBLFLCNT\n"
+             "    LDX ZPBLFLPOS\n"
+             "    LDY #0\n"
+             ".skyit:\n"
+             "    LDA #16\n"
+             "    STA (ZPTMP),Y\n"
+             "    INY\n"
+             "    LDA #7\n"
+             "    STA (ZPTMP),Y\n"
+             "    DEY\n"
+             "    JSR zptmp_add40\n"
+             "    DEC ZPBLFLCNT\n"
+             "    DEX\n"
+             "    BNE .skyit\n"
              "    LDA ZPBLFLFRM\n"
              "    CLC\n"
              "    ADC #12\n"
@@ -2097,15 +2211,13 @@ void gen_bouncy(uint16_t *addr)
              "    LDA #0\n"
              "    STA ZPBLFLTABO\n"
              "    STA ZPBLFLLINE\n"
-             "    LDA #$C0\n"
-             "    STA ZPTMP\n"
-             "    LDA #$B2\n"
-             "    STA ZPTMP2\n"
              "    LDA #7\n"
              "    STA ZPTMP5\n"
              "    STA ZPTMP6\n"
              "    LDX #40\n"
              "    JSR bouncy_mvl_part\n"
+             "    LDA ZPBLFLCNT\n"
+             "    BEQ .alldone\n"
              "    LDA #5\n"
              "    STA ZPTMP5\n"
              "    LDA #6\n"
@@ -2137,46 +2249,49 @@ void gen_bouncy(uint16_t *addr)
              "    INY\n"
              "    STY ZPBLFLLINE\n"
              "    JSR zptmp_add40\n"
+             "    DEC ZPBLFLCNT\n"
+             "    BEQ .alldone\n"
              "    DEX\n"
              "    BNE bouncy_mvl_part\n"
+             ".alldone:\n"
              "    RTS\n", tapdata, addr);
 
-    assemble("bouncy_clr_part:\n"
-             "    LDY ZPBLFLTABO\n"
-             "    LDA (ZPBLFLLLO),Y\n"
-             "    CMP ZPBLFLLINE\n"
-             "    BNE bouncy_clr_part_nolines\n"
-             "    INY\n"
-             "    STY ZPBLFLTABO\n"
-             "    LDY #0\n"
-             "    LDA ZPTMP5\n"
-             "    STA (ZPTMP),Y\n"
-             "    INY\n"
-             "    LDA #17\n"
-             "    STA (ZPTMP),Y\n"
-             "    BNE .donespecial\n"
-             "bouncy_clr_part_nolines:\n"
-             "    LDY #0\n"
-             "    LDA ZPTMP3\n"
-             "    STA (ZPTMP),Y\n"
-             "    INY\n"
-             "    LDA ZPTMP4\n"
-             "    STA (ZPTMP),Y\n"
-             ".donespecial:\n"
-             "    LDY ZPBLFLLINE\n"
-             "    INY\n"
-             "    STY ZPBLFLLINE\n"
-             "    LDY #2\n"
-             "    LDA #$40\n"
-             ".bouncy_clr2:\n"
-             "    STA (ZPTMP),Y\n"
-             "    INY\n"
-             "    CPY #40\n"
-             "    BNE .bouncy_clr2\n"
-             "    JSR zptmp_add40\n"
-             "    DEX\n"
-             "    BNE bouncy_clr_part\n"
-             "    RTS\n", tapdata, addr);
+//    assemble("bouncy_clr_part:\n"
+//             "    LDY ZPBLFLTABO\n"
+//             "    LDA (ZPBLFLLLO),Y\n"
+//             "    CMP ZPBLFLLINE\n"
+//             "    BNE bouncy_clr_part_nolines\n"
+//             "    INY\n"
+//             "    STY ZPBLFLTABO\n"
+//             "    LDY #0\n"
+//             "    LDA ZPTMP5\n"
+//             "    STA (ZPTMP),Y\n"
+//             "    INY\n"
+//             "    LDA #17\n"
+//             "    STA (ZPTMP),Y\n"
+//             "    BNE .donespecial\n"
+//             "bouncy_clr_part_nolines:\n"
+//             "    LDY #0\n"
+//             "    LDA ZPTMP3\n"
+//             "    STA (ZPTMP),Y\n"
+//             "    INY\n"
+//             "    LDA ZPTMP4\n"
+//             "    STA (ZPTMP),Y\n"
+//             ".donespecial:\n"
+//             "    LDY ZPBLFLLINE\n"
+//             "    INY\n"
+//             "    STY ZPBLFLLINE\n"
+//             "    LDY #2\n"
+//             "    LDA #$40\n"
+//             ".bouncy_clr2:\n"
+//             "    STA (ZPTMP),Y\n"
+//             "    INY\n"
+//             "    CPY #40\n"
+//             "    BNE .bouncy_clr2\n"
+//             "    JSR zptmp_add40\n"
+//             "    DEX\n"
+//             "    BNE bouncy_clr_part\n"
+//             "    RTS\n", tapdata, addr);
 
     resolve_and_remove_temporary_syms(tapdata);
 }
@@ -2225,14 +2340,13 @@ void gen_credits(uint16_t *addr)
 //        tapdata[(*addr)++] = caddr >> 8;
 //    }
 
-    caddr = sym_get("credits_text");
-
     assemble("credits_cls:\n"
              "    JSR zptmp_set_to_a000\n"
              "    LDX #0\n"
              "    STX ZPCRDCOFF\n"
              ".mktabloop:\n"
              "    LDY #39\n"
+             ".credits_cls_smc_calc:\n"
              "    LDA #16\n"
              ".clritloop:\n"
              "    STA (ZPTMP),Y\n"
@@ -2299,7 +2413,12 @@ void gen_credits(uint16_t *addr)
              "    DEX\n"
              "    BPL .clrloop2\n", tapdata, addr);
 
+    caddr = sym_get(".credits_cls_smc_calc");
+    sym_define("credits_cls_smc", caddr+1);
+
     resolve_and_remove_temporary_syms(tapdata);
+
+    caddr = sym_get("credits_text");
 
     snprintf(tmp, sizeof(tmp),
              "    LDA #%u\n"
@@ -2867,6 +2986,86 @@ void gen_kefratraz(uint16_t *addr)
     resolve_and_remove_temporary_syms(tapdata);
 }
 
+void gen_endpic(uint16_t *addr)
+{
+    uint8_t *endpicbmp = NULL;
+    size_t endpicbmpsize = 0;
+    uint8_t endpic[(132*36)/6];
+    int x, y, pitch;
+
+    FILE *f;
+
+    f = fopen("endpic.bmp", "rb");
+    if (NULL == f)
+    {
+        fprintf(stderr, "Failed to open endpic.bmp\n");
+        exit(EXIT_FAILURE);
+    }
+
+    fseek(f, 0, SEEK_END);
+    endpicbmpsize = ftell(f);
+    fseek(f, 0, SEEK_SET);
+
+    endpicbmp = malloc(endpicbmpsize);
+    if (NULL == endpicbmp)
+    {
+        fprintf(stderr, "Out of memory\n");
+        fclose(f);
+        exit(EXIT_FAILURE);
+    }
+
+    fread(endpicbmp, endpicbmpsize, 1, f);
+    fclose(f);
+    f = NULL;
+
+    memset(endpic, 0x40, sizeof(endpic));
+    pitch = (((132+7)/8) + 3) & 0xfffffffc;
+    for (y=0; y<36; y++)
+    {
+        for (x=0; x<132; x++)
+        {
+            if (endpicbmp[0x3e + (35-y)*pitch + (x/8)] & (1<<(7-(x&7))))
+                endpic[y * (132/6) + (x/6)] |= (1<<(5-(x%6)));
+        }
+    }
+
+    sym_define("endpic_gfx", *addr);
+    memcpy(&tapdata[*addr], endpic, sizeof(endpic));
+    (*addr) += sizeof(endpic);
+
+    assemble("endpic:\n"
+             "    JSR credits_cls\n"
+             "    LDA #$69\n"
+             "    STA ZPTMP\n"
+             "    LDA #$A9\n"
+             "    STA ZPTMP2\n"
+             "    LDA #>endpic_gfx\n"
+             "    STA ZPTMP3\n"
+             "    LDA #<endpic_gfx\n"
+             "    STA ZPTMP4\n"
+             "    LDX #35\n"
+             ".copypic2:\n"
+             "    LDY #21\n"
+             ".copypic:\n"
+             "    LDA (ZPTMP3),Y\n"
+             "    STA (ZPTMP),Y\n"
+             "    DEY\n"
+             "    BPL .copypic\n"
+             "    JSR zptmp_add40\n"
+             "    LDA ZPTMP3\n"
+             "    CLC\n"
+             "    ADC #22\n"
+             "    STA ZPTMP3\n"
+             "    BCC .noinchi\n"
+             "    INC ZPTMP4\n"
+             ".noinchi:\n"
+             "    DEX\n"
+             "    BPL .copypic2\n"
+             "    RTS\n", tapdata, addr);
+
+    resolve_and_remove_temporary_syms(tapdata);
+}
+
 int main(int argc, const char *argv[])
 {
     int i;
@@ -2909,6 +3108,10 @@ int main(int argc, const char *argv[])
     sym_define("ZPBLFLFRM",   20);
     sym_define("ZPBLTMP",     21);
     sym_define("ZPBLTMP2",    22);
+    sym_define("ZPBLFLPOS",   23);
+    sym_define("ZPBLFLCNT",   24);
+    sym_define("ZPBLRLSTLO",  27);
+    sym_define("ZPBLRLSTHI",  28);
 
     sym_define("ZPSWFRAME",    3);
     sym_define("ZPSWFRAME2",   4);
@@ -2939,11 +3142,8 @@ int main(int argc, const char *argv[])
     sym_define("ZPNPTMP2",    23);
     sym_define("ZPROG10PDB",  24);
 
-    sym_define("ZPSTORY",     25);
-    sym_define("ZPSTORX",     26);
-
-    sym_define("ZPCRDCNT",    27);
-    sym_define("ZPCRDCOFF",   28);
+    sym_define("ZPCRDCNT",    29);
+    sym_define("ZPCRDCOFF",   30);
 
     // Music zero page
     sym_define("ptDATA",     160);
@@ -2960,8 +3160,12 @@ int main(int argc, const char *argv[])
     sym_define("PLY_AKY_PSGREGISTER12", 170);
     sym_define("PLY_AKY_PSGREGISTER13", 171);
 
-    sym_define("ZPMUSTIMLO", 172);
-    sym_define("ZPMUSTIMHI", 173);
+    sym_define("ZPSTORY",    200);
+    sym_define("ZPSTORX",    201);
+
+    sym_define("ZPMUSTIMLO", 202);
+    sym_define("ZPMUSTIMHI", 203);
+
 
 
     /* Demo entry point */
@@ -3004,6 +3208,8 @@ int main(int argc, const char *argv[])
              "    JSR kefratraz_bars\n"
              "    JSR rotatogreet\n"
              "    JSR bouncy\n"
+             "    SEI\n"
+             "    JSR endpic\n"
              "demoend:\n"
              "    JMP demoend\n"
              "zptmp_set_to_a000:\n"
@@ -3110,12 +3316,13 @@ int main(int argc, const char *argv[])
     gen_bouncy(&addr);
     gen_credits(&addr);
     gen_kefratraz(&addr);
+    gen_endpic(&addr);
     gen_music(&addr);
+
+    resolve_pending(tapdata, false);
 
     /* Define a handy table for text screen access (currently only used by scrwipe)*/
     sym_define("scrtab", addr);
-    resolve_pending(tapdata, false);
-
     for (i=0; i<28; i++)
     {
         tapdata[addr++] = (0xbb80 + (i*40)) & 0xff;

@@ -3173,10 +3173,21 @@ int main(int argc, const char *argv[])
              "    SEI\n"
              "    JSR PLY_AKY_INIT\n"
              // set interrupt routine
+             "    LDA $FFFE\n"
+             "    CMP #$28\n"
+             "    BEQ .oric1\n"
+             //Oric Atmos detected
              "    LDA #>irq_func\n"
              "    STA $245\n"	
              "    LDA #<irq_func\n"
              "    STA $246\n"
+             "    BNE .doneirq\n"
+             ".oric1:\n"
+             "    LDA #>irq_func\n"
+             "    STA $229\n"
+             "    LDA #<irq_func\n"
+             "    STA $22a\n"
+             ".doneirq:\n"
          
              // TIMER 1 6522 
              "    LDA #%01000000\n"		                                // continuous interrupt / PB7 disabled

@@ -238,18 +238,9 @@ void gen_stripewobblerline(int size, uint16_t *addr)
 void gen_stripewobbler(uint16_t *addr)
 {
     int i;
-    double ang, calc;
     uint16_t labaddr, smcaddr;
     char label[32];
     char tmp[1024];
-
-    sym_define("stripewobbler_sintab", *addr);
-    for (ang=0.0f, i=0; i<STRIPEWOBBLE_SINTABSIZE; i++, ang+=((2.0f*3.1419265f)/STRIPEWOBBLE_SINTABSIZE))
-    {
-        calc = (sin(ang) * (STRIPEWOBBLE_MIDDLE/2)) + (STRIPEWOBBLE_MIDDLE/2); /* + STRIPEWOBBLE_MINSIZE  would give us from MIN to MAX, but we actually want 0 to MAX-MIN */
-        //printf("pos %d: ang = %u\n", i, (uint8_t)calc);
-        tapdata[(*addr)++] = ((uint8_t)(calc/2))*2; /* Pre-multiply by 2 as we use it to index into a jumptable */
-    }
 
     assemble("stripewobbler_tabxtozptmp:\n"
              "    LDA stripewobbler_table,X\n"  // -2
@@ -873,6 +864,9 @@ void gen_rotatogreet(uint16_t *addr)
              "    BPL .genloop2\n"
 
              ".alreadysetup:\n"
+             "    LDA #1\n"
+             "    STA ZPROG10PDB\n"
+             ".doubledashit:\n"
              "    LDA $0304\n"
              "    EOR ZPROG10PCT\n"
              "    AND #2\n"
@@ -909,7 +903,7 @@ void gen_rotatogreet(uint16_t *addr)
              "    CPY #38\n"
              "    BEQ .newrow\n"
              "    STY ZPROG10PCT\n"
-             "    RTS\n"
+             "    JMP .keepgoing\n"
              ".newrow:\n"
              "    LDA #0\n"
              "    STA ZPROG10PCT\n"
@@ -929,6 +923,9 @@ void gen_rotatogreet(uint16_t *addr)
         "    LDA #1\n"
         "    STA ZPROGMLEND\n"
         ".keepgoing:\n"
+        "bpme:\n"
+        "    DEC ZPROG10PDB\n"
+        "    BPL .doubledashit\n"
         "    RTS\n", (smcaddr >> 8) ^ (smcaddr&0xff));
     assemble(tmp, tapdata, addr);
 
@@ -2207,14 +2204,16 @@ void gen_credits(uint16_t *addr)
         tapdata[(*addr)++] = 0xc0;
     }
 
-    caddr = sym_get("stripewobbler"); /* Re-use stripewobbler memory for text buffer */
+    caddr = sym_get("stripewobbler"); /* Re-use noproblem memory for text buffer */
     sym_define("credits_text", caddr);
     sym_define("credits_text_b", caddr+(37*24));
-    caddr = sym_get("rotatogreet");   /* Re-use rotatogreet memory for stars buffers */
-    sym_define("credits_rowtab_lo", caddr);
-    sym_define("credits_rowtab_hi", caddr+200);
-    sym_define("credits_startab", caddr+400);
-    sym_define("credits_startab_m1", caddr+399);
+
+    sym_define("credits_startab", caddr+(37*24*2));
+    sym_define("credits_startab_m1", caddr+((37*24*2)-1));
+
+    sym_define("credits_rowtab_lo", (*addr));
+    sym_define("credits_rowtab_hi", (*addr)+200);
+    (*addr) += 400;
 
 //    sym_define("credits_tab", *addr);
 //    sym_define("credits_tab_pl1", (*addr)+1);
@@ -2228,7 +2227,7 @@ void gen_credits(uint16_t *addr)
 
     caddr = sym_get("credits_text");
 
-    assemble("credits:\n"
+    assemble("credits_cls:\n"
              "    JSR zptmp_set_to_a000\n"
              "    LDX #0\n"
              "    STX ZPCRDCOFF\n"
@@ -2249,9 +2248,11 @@ void gen_credits(uint16_t *addr)
              "    ADC #0\n"
              "    STA ZPTMP2\n"
              "    INX\n"
-             "    CMP #200\n"
+             "    CPX #200\n"
              "    BNE .mktabloop\n"
-
+             "    RTS\n", tapdata, addr);
+    assemble("credits:\n"
+             "    JSR credits_cls\n"
              "    LDX #0\n"
              "credits_starsetup:\n"
              "    LDA credits_startab,X\n"
@@ -2348,8 +2349,8 @@ void gen_credits(uint16_t *addr)
              "    JSR credits_dostars\n"
              "    JSR credits_drawframe\n"
              "    JSR credits_cyclecols\n"
-             "    LDA #$16\n"
-             "    LDX #$80\n"
+             "    LDA #$09\n"
+             "    LDX #$c0\n"
              "    JSR cmp_mustim\n"
              "    BCS credits_loop1\n"
 
@@ -2362,8 +2363,8 @@ void gen_credits(uint16_t *addr)
              "    JSR credits_dostars\n"
              "    JSR credits_drawframe\n"
              "    JSR credits_cyclecols\n"
-             "    LDA #$18\n"
-             "    LDX #$20\n"
+             "    LDA #$0a\n"
+             "    LDX #$80\n"
              "    JSR cmp_mustim\n"
              "    BCS credits_loop2\n"
              "    RTS\n"
@@ -2637,6 +2638,234 @@ void gen_credits(uint16_t *addr)
     resolve_and_remove_temporary_syms(tapdata);
 }
 
+void gen_kefratraz(uint16_t *addr)
+{
+    int i;
+
+#if 0
+    /*   543210 543210 543210 543210 */
+    /*   010110 111111 011010        */
+    /*     0101 101111 110110 10     */
+    /*       01 011011 111101 1010   */
+    uint8_t kefratraz_gfx[] = { 0x56, 0x7f, 0x5a, 0x40,  0x45, 0x6f, 0x76, 0x60,  0x41, 0x5b, 0x7d, 0x68 };
+    uint8_t kefratraz_msk[] = { 0x40, 0x40, 0x40, 0x7f,  0x70, 0x40, 0x40, 0x4f,  0x7c, 0x40, 0x40, 0x43 };
+#else
+    /*   543210 543210 543210 543210 */
+    /*   011111 111111 111110        */
+    /*     0111 111111 111111 10     */
+    /*       01 111111 111111 1110   */
+    uint8_t kefratraz_gfx[] = { 0x5f, 0x7f, 0x7e, 0x40,  0x47, 0x7f, 0x7f, 0x60,  0x41, 0x7f, 0x7f, 0x78 };
+    uint8_t kefratraz_msk[] = { 0x40, 0x40, 0x40, 0x7f,  0x70, 0x40, 0x40, 0x4f,  0x7c, 0x40, 0x40, 0x43 };
+#endif
+
+    sym_define("kefratraz_gfx", *addr);
+    memcpy(&tapdata[*addr], kefratraz_gfx, sizeof(kefratraz_gfx));
+    (*addr) += sizeof(kefratraz_gfx);
+    sym_define("kefratraz_imask", *addr);
+    memcpy(&tapdata[*addr], kefratraz_msk, sizeof(kefratraz_msk));
+    (*addr) += sizeof(kefratraz_msk);
+    sym_define("kefratraz_xtab", *addr);
+    for (i=3; i<120; i++)
+        tapdata[(*addr)++] = i/3 + 2;
+    sym_define("kefratraz_gfxtab", *addr);
+    for (i=3; i<120; i++)
+        tapdata[(*addr)++] = (i%3) * 4;
+
+    assemble("kefratraz_doit1:\n"
+             "    LDA (ZPTMP),Y\n"
+             "    AND kefratraz_imask,X\n"
+             "    ORA kefratraz_gfx,X\n"
+             "    STA (ZPTMP),Y\n"
+             "    INY\n"
+             "    INX\n"
+             "    LDA (ZPTMP),Y\n"
+             "    AND kefratraz_imask,X\n"
+             "    ORA kefratraz_gfx,X\n"
+             "    STA (ZPTMP),Y\n"
+             "    INY\n"
+             "    INX\n"
+             "    LDA (ZPTMP),Y\n"
+             "    AND kefratraz_imask,X\n"
+             "    ORA kefratraz_gfx,X\n"
+             "    STA (ZPTMP),Y\n"
+             "    INY\n"
+             "    INX\n"
+             "    LDA (ZPTMP),Y\n"
+             "    AND kefratraz_imask,X\n"
+             "    ORA kefratraz_gfx,X\n"
+             "    STA (ZPTMP),Y\n"
+             "    JMP kefratraz_return\n"
+             "kefratraz_doit2:\n"
+             "    LDA (ZPTMP),Y\n"
+             "    AND kefratraz_imask,X\n"
+             "    ORA #$80\n"
+             "    ORA kefratraz_gfx,X\n"
+             "    STA (ZPTMP),Y\n"
+             "    INY\n"
+             "    INX\n"
+             "    LDA (ZPTMP),Y\n"
+             "    AND kefratraz_imask,X\n"
+             "    ORA #$80\n"
+             "    ORA kefratraz_gfx,X\n"
+             "    STA (ZPTMP),Y\n"
+             "    INY\n"
+             "    INX\n"
+             "    LDA (ZPTMP),Y\n"
+             "    AND kefratraz_imask,X\n"
+             "    ORA #$80\n"
+             "    ORA kefratraz_gfx,X\n"
+             "    STA (ZPTMP),Y\n"
+             "    INY\n"
+             "    INX\n"
+             "    LDA (ZPTMP),Y\n"
+             "    AND kefratraz_imask,X\n"
+             "    ORA kefratraz_gfx,X\n"
+             "    STA (ZPTMP),Y\n"
+             "    JMP kefratraz_return\n"
+             "kefratraz_doit3:\n"
+             "    LDA (ZPTMP),Y\n"
+             "    AND kefratraz_imask,X\n"
+             "    ORA kefratraz_gfx,X\n"
+             "    STA (ZPTMP),Y\n"
+             "    INY\n"
+             "    INX\n"
+             "    LDA (ZPTMP),Y\n"
+             "    AND kefratraz_imask,X\n"
+             "    ORA #$80\n"
+             "    ORA kefratraz_gfx,X\n"
+             "    STA (ZPTMP),Y\n"
+             "    INY\n"
+             "    INX\n"
+             "    LDA (ZPTMP),Y\n"
+             "    AND kefratraz_imask,X\n"
+             "    ORA #$80\n"
+             "    ORA kefratraz_gfx,X\n"
+             "    STA (ZPTMP),Y\n"
+             "    INY\n"
+             "    INX\n"
+             "    LDA (ZPTMP),Y\n"
+             "    AND kefratraz_imask,X\n"
+             "    ORA #$80\n"
+             "    ORA kefratraz_gfx,X\n"
+             "    STA (ZPTMP),Y\n"
+             "    JMP kefratraz_return\n", tapdata, addr);
+
+    assemble("kefratraz_frame:\n"
+             "    LDA #3\n"
+             "    CLC\n"
+             "    ADC ZPSWFRAME\n"
+             "    STA ZPSWFRAME\n"
+             "    STA ZPSINPOS1\n"
+             "    LDA ZPSWFRAME2\n"
+             "    SEC\n"
+             "    SBC #11\n"
+             "    STA ZPSWFRAME2\n"
+             "    STA ZPSINPOS2\n"
+             "    LDA #$20\n"
+             "    STA ZPTMP\n"
+             "    LDA #$A3\n"
+             "    STA ZPTMP2\n"
+             "    LDY #39\n"
+             "    LDA #16\n"
+             ".clearfirstrow:\n"
+             "    STA (ZPTMP),Y\n"
+             "    DEY\n"
+             "    BNE .clearfirstrow\n"
+             "    LDA #2\n"
+             "    STA (ZPTMP),Y\n"
+
+             "    LDA #79\n"
+             "    STA ZPKCOUNT\n"
+             "kefratraz_frameloop:\n"
+             "    LDX ZPSINPOS1\n"
+             "    LDA stripewobbler_sintab,X\n"
+             "    ASL\n"
+             "    INX\n"
+             "    INX\n"
+             "    STX ZPSINPOS1\n"
+             "    LDX ZPSINPOS2\n"
+             "    CLC\n"
+             "    ADC stripewobbler_sintab,X\n"
+             "    DEX\n"
+             "    DEX\n"
+             "    DEX\n"
+             "    STX ZPSINPOS2\n"
+             "    TAX\n"
+             "    LDY kefratraz_xtab,X\n"
+             "    LDA kefratraz_gfxtab,X\n"
+             "    TAX\n"
+
+             "    LDA ZPKCOUNT\n"
+             "    CMP ZPSWSIZE\n"
+             "    BCS kefratraz_return\n"
+             "    AND #2\n"
+             "    BNE .dontdo1\n"
+             "    JMP kefratraz_doit1\n"
+             ".dontdo1:\n"
+             "    TXA\n"
+             "    AND #8\n"
+             "    BNE .doit3\n"
+             "    JMP kefratraz_doit2\n"
+             ".doit3:\n"
+             "    JMP kefratraz_doit3\n"
+             "kefratraz_return:\n"
+             "    LDA ZPTMP\n"
+             "    STA ZPTMP3\n"
+             "    LDA ZPTMP2\n"
+             "    STA ZPTMP4\n"
+             "    JSR zptmp_add40\n"
+             "    LDA ZPTMP\n"
+             "    STA ZPTMP5\n"
+             "    LDA ZPTMP2\n"
+             "    STA ZPTMP6\n"
+             "    JSR zptmp_add40\n"
+             "    LDY #39\n"
+             ".copyprevrow:\n"
+             "    LDA (ZPTMP3),Y\n"
+             "    STA (ZPTMP5),Y\n"
+             "    STA (ZPTMP),Y\n"
+             "    DEY\n"
+             "    LDA (ZPTMP3),Y\n"
+             "    STA (ZPTMP5),Y\n"
+             "    STA (ZPTMP),Y\n"
+             "    DEY\n"
+             "    LDA (ZPTMP3),Y\n"
+             "    STA (ZPTMP5),Y\n"
+             "    STA (ZPTMP),Y\n"
+             "    DEY\n"
+             "    LDA (ZPTMP3),Y\n"
+             "    STA (ZPTMP5),Y\n"
+             "    STA (ZPTMP),Y\n"
+             "    DEY\n"
+             "    BPL .copyprevrow\n"
+
+             "    DEC ZPKCOUNT\n"
+             "    BNE kefratraz_frameloop\n"
+             ".done:\n"
+             "    RTS\n", tapdata, addr);
+
+    assemble("kefratraz_bars:\n"
+             "    JSR credits_cls\n" /* Re-use the credits cls routine to save space */
+             "    LDA #0\n"
+             "    STA ZPSINPOS1\n"
+             "    STA ZPSINPOS2\n"
+             "    LDA #0\n"
+             "    STA ZPSWSIZE\n"
+             "kefratraz_loop:\n"
+             "    LDA ZPSWSIZE\n"
+             "    CMP #80\n"
+             "    BEQ .noinc\n"
+             "    INC ZPSWSIZE\n"
+             ".noinc:\n"
+             "    JSR kefratraz_frame\n"
+             "    LDA #$0f\n"
+             "    LDX #$00\n"
+             "    JSR cmp_mustim\n"
+             "    BCS kefratraz_loop\n"
+             "    RTS\n", tapdata, addr);
+
+    resolve_and_remove_temporary_syms(tapdata);
+}
 
 int main(int argc, const char *argv[])
 {
@@ -2689,6 +2918,8 @@ int main(int argc, const char *argv[])
     sym_define("ZPSWFADE",     8);
     sym_define("ZPSWSIZE",     9);
 
+    sym_define("ZPKCOUNT",    10);
+
     sym_define("ZPROGTROWLO",  8);
     sym_define("ZPROGTROWHI",  9);
     sym_define("ZPROGACCUM",  10);
@@ -2706,12 +2937,13 @@ int main(int argc, const char *argv[])
     sym_define("ZPNPFIN",     21);
     sym_define("ZPNPTMP1",    22);
     sym_define("ZPNPTMP2",    23);
-    
-    sym_define("ZPSTORY",     24);
-    sym_define("ZPSTORX",     25);
+    sym_define("ZPROG10PDB",  24);
 
-    sym_define("ZPCRDCNT",    26);
-    sym_define("ZPCRDCOFF",   27);
+    sym_define("ZPSTORY",     25);
+    sym_define("ZPSTORX",     26);
+
+    sym_define("ZPCRDCNT",    27);
+    sym_define("ZPCRDCOFF",   28);
 
     // Music zero page
     sym_define("ptDATA",     160);
@@ -2768,8 +3000,9 @@ int main(int argc, const char *argv[])
              "    CLI\n"                                                 // INT on!
              "    JSR noproblem\n"
              "    JSR stripewobbler\n"
-             "    JSR rotatogreet\n"
              "    JSR credits\n"
+             "    JSR kefratraz_bars\n"
+             "    JSR rotatogreet\n"
              "    JSR bouncy\n"
              "demoend:\n"
              "    JMP demoend\n"
@@ -2858,12 +3091,25 @@ int main(int argc, const char *argv[])
              "    RTI\n"
              , tapdata, &addr);
 
+    /* This sintab is used in multiple effects, so define it to avoid it getting blatted */
+    {
+        double ang, calc;
+        sym_define("stripewobbler_sintab", addr);
+        for (ang=0.0f, i=0; i<STRIPEWOBBLE_SINTABSIZE; i++, ang+=((2.0f*3.1419265f)/STRIPEWOBBLE_SINTABSIZE))
+        {
+            calc = (sin(ang) * (STRIPEWOBBLE_MIDDLE/2)) + (STRIPEWOBBLE_MIDDLE/2); /* + STRIPEWOBBLE_MINSIZE  would give us from MIN to MAX, but we actually want 0 to MAX-MIN */
+            //printf("pos %d: ang = %u\n", i, (uint8_t)calc);
+            tapdata[addr++] = ((uint8_t)(calc/2))*2; /* Pre-multiply by 2 as we use it to index into a jumptable */
+        }
+    }
+
     gen_scrwipe(&addr);
+    gen_noproblem(&addr);
     gen_stripewobbler(&addr);
     gen_rotatogreet(&addr);
-    gen_noproblem(&addr);
     gen_bouncy(&addr);
     gen_credits(&addr);
+    gen_kefratraz(&addr);
     gen_music(&addr);
 
     /* Define a handy table for text screen access (currently only used by scrwipe)*/

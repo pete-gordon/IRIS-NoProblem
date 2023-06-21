@@ -2761,12 +2761,13 @@ void gen_kefratraz(uint16_t *addr)
 {
     int i;
 
-#if 0
+#if 1
     /*   543210 543210 543210 543210 */
     /*   010110 111111 011010        */
     /*     0101 101111 110110 10     */
     /*       01 011011 111101 1010   */
-    uint8_t kefratraz_gfx[] = { 0x56, 0x7f, 0x5a, 0x40,  0x45, 0x6f, 0x76, 0x60,  0x41, 0x5b, 0x7d, 0x68 };
+    uint8_t kefratraz_gfx[] = { 0x56, 0x7f, 0x5a, 0x40,  0x45, 0x6f, 0x76, 0x60,  0x41, 0x5b, 0x7d, 0x68,
+                                0xd6, 0xff, 0xda, 0x40,  0xc5, 0xef, 0xf6, 0x60,  0x41, 0xdb, 0xfd, 0xe8 };
     uint8_t kefratraz_msk[] = { 0x40, 0x40, 0x40, 0x7f,  0x70, 0x40, 0x40, 0x4f,  0x7c, 0x40, 0x40, 0x43 };
 #else
     /*   543210 543210 543210 543210 */
@@ -2776,6 +2777,17 @@ void gen_kefratraz(uint16_t *addr)
     uint8_t kefratraz_gfx[] = { 0x5f, 0x7f, 0x7e, 0x40,  0x47, 0x7f, 0x7f, 0x60,  0x41, 0x7f, 0x7f, 0x78 };
     uint8_t kefratraz_msk[] = { 0x40, 0x40, 0x40, 0x7f,  0x70, 0x40, 0x40, 0x4f,  0x7c, 0x40, 0x40, 0x43 };
 #endif
+
+    {
+        double ang, calc;
+        sym_define("kefratraz_sintab", *addr);
+        for (ang=0.0f, i=0; i<256; i++, ang+=((2.0f*3.1419265f)/256))
+        {
+            calc = (sin(ang) * 27.0f) + 27.0f; /* + STRIPEWOBBLE_MINSIZE  would give us from MIN to MAX, but we actually want 0 to MAX-MIN */
+            //printf("pos %d: ang = %u\n", i, (uint8_t)calc);
+            tapdata[(*addr)++] = (uint8_t)calc;
+        }
+    }
 
     sym_define("kefratraz_gfx", *addr);
     memcpy(&tapdata[*addr], kefratraz_gfx, sizeof(kefratraz_gfx));
@@ -2789,85 +2801,9 @@ void gen_kefratraz(uint16_t *addr)
     sym_define("kefratraz_gfxtab", *addr);
     for (i=3; i<120; i++)
         tapdata[(*addr)++] = (i%3) * 4;
-
-    assemble("kefratraz_doit1:\n"
-             "    LDA (ZPTMP),Y\n"
-             "    AND kefratraz_imask,X\n"
-             "    ORA kefratraz_gfx,X\n"
-             "    STA (ZPTMP),Y\n"
-             "    INY\n"
-             "    INX\n"
-             "    LDA (ZPTMP),Y\n"
-             "    AND kefratraz_imask,X\n"
-             "    ORA kefratraz_gfx,X\n"
-             "    STA (ZPTMP),Y\n"
-             "    INY\n"
-             "    INX\n"
-             "    LDA (ZPTMP),Y\n"
-             "    AND kefratraz_imask,X\n"
-             "    ORA kefratraz_gfx,X\n"
-             "    STA (ZPTMP),Y\n"
-             "    INY\n"
-             "    INX\n"
-             "    LDA (ZPTMP),Y\n"
-             "    AND kefratraz_imask,X\n"
-             "    ORA kefratraz_gfx,X\n"
-             "    STA (ZPTMP),Y\n"
-             "    JMP kefratraz_return\n"
-             "kefratraz_doit2:\n"
-             "    LDA (ZPTMP),Y\n"
-             "    AND kefratraz_imask,X\n"
-             "    ORA #$80\n"
-             "    ORA kefratraz_gfx,X\n"
-             "    STA (ZPTMP),Y\n"
-             "    INY\n"
-             "    INX\n"
-             "    LDA (ZPTMP),Y\n"
-             "    AND kefratraz_imask,X\n"
-             "    ORA #$80\n"
-             "    ORA kefratraz_gfx,X\n"
-             "    STA (ZPTMP),Y\n"
-             "    INY\n"
-             "    INX\n"
-             "    LDA (ZPTMP),Y\n"
-             "    AND kefratraz_imask,X\n"
-             "    ORA #$80\n"
-             "    ORA kefratraz_gfx,X\n"
-             "    STA (ZPTMP),Y\n"
-             "    INY\n"
-             "    INX\n"
-             "    LDA (ZPTMP),Y\n"
-             "    AND kefratraz_imask,X\n"
-             "    ORA kefratraz_gfx,X\n"
-             "    STA (ZPTMP),Y\n"
-             "    JMP kefratraz_return\n"
-             "kefratraz_doit3:\n"
-             "    LDA (ZPTMP),Y\n"
-             "    AND kefratraz_imask,X\n"
-             "    ORA kefratraz_gfx,X\n"
-             "    STA (ZPTMP),Y\n"
-             "    INY\n"
-             "    INX\n"
-             "    LDA (ZPTMP),Y\n"
-             "    AND kefratraz_imask,X\n"
-             "    ORA #$80\n"
-             "    ORA kefratraz_gfx,X\n"
-             "    STA (ZPTMP),Y\n"
-             "    INY\n"
-             "    INX\n"
-             "    LDA (ZPTMP),Y\n"
-             "    AND kefratraz_imask,X\n"
-             "    ORA #$80\n"
-             "    ORA kefratraz_gfx,X\n"
-             "    STA (ZPTMP),Y\n"
-             "    INY\n"
-             "    INX\n"
-             "    LDA (ZPTMP),Y\n"
-             "    AND kefratraz_imask,X\n"
-             "    ORA #$80\n"
-             "    ORA kefratraz_gfx,X\n"
-             "    STA (ZPTMP),Y\n"
-             "    JMP kefratraz_return\n", tapdata, addr);
+    sym_define("kefratraz_gfxtab2", *addr);
+    for (i=3; i<120; i++)
+        tapdata[(*addr)++] = (i%3) * 4 + 12;
 
     assemble("kefratraz_frame:\n"
              "    LDA #3\n"
@@ -2885,7 +2821,7 @@ void gen_kefratraz(uint16_t *addr)
              "    LDA #$A3\n"
              "    STA ZPTMP2\n"
              "    LDY #39\n"
-             "    LDA #16\n"
+             "    LDA #$40\n"
              ".clearfirstrow:\n"
              "    STA (ZPTMP),Y\n"
              "    DEY\n"
@@ -2897,37 +2833,55 @@ void gen_kefratraz(uint16_t *addr)
              "    STA ZPKCOUNT\n"
              "kefratraz_frameloop:\n"
              "    LDX ZPSINPOS1\n"
-             "    LDA stripewobbler_sintab,X\n"
-             "    ASL\n"
+             "    LDA kefratraz_sintab,X\n"
              "    INX\n"
              "    INX\n"
              "    STX ZPSINPOS1\n"
              "    LDX ZPSINPOS2\n"
              "    CLC\n"
-             "    ADC stripewobbler_sintab,X\n"
+             "    ADC kefratraz_sintab,X\n"
              "    DEX\n"
              "    DEX\n"
              "    DEX\n"
              "    STX ZPSINPOS2\n"
              "    TAX\n"
              "    LDY kefratraz_xtab,X\n"
-             "    LDA kefratraz_gfxtab,X\n"
-             "    TAX\n"
 
              "    LDA ZPKCOUNT\n"
              "    CMP ZPSWSIZE\n"
-             "    BCS kefratraz_return\n"
-             "    AND #2\n"
-             "    BNE .dontdo1\n"
-             "    JMP kefratraz_doit1\n"
-             ".dontdo1:\n"
-             "    TXA\n"
-             "    AND #8\n"
-             "    BNE .doit3\n"
-             "    JMP kefratraz_doit2\n"
-             ".doit3:\n"
-             "    JMP kefratraz_doit3\n"
-             "kefratraz_return:\n"
+             "    BCS kefratraz_skipdraw\n"
+             "    AND #4\n"
+             "    BNE .addy\n"
+             "    LDA kefratraz_gfxtab,X\n"
+             "    JMP .noadd\n"
+             ".addy:\n"
+             "    LDA kefratraz_gfxtab2,X\n"
+             ".noadd:\n"
+             "    TAX\n"
+             "    LDA (ZPTMP),Y\n"
+             "    AND kefratraz_imask,X\n"
+             "    ORA kefratraz_gfx,X\n"
+             "    STA (ZPTMP),Y\n"
+             "    INY\n"
+             "    INX\n"
+             //"    LDA (ZPTMP),Y\n"
+             //"    AND kefratraz_imask,X\n"
+             "    LDA kefratraz_gfx,X\n"
+             "    STA (ZPTMP),Y\n"
+             "    INY\n"
+             "    INX\n"
+             //"    LDA (ZPTMP),Y\n"
+             //"    AND kefratraz_imask,X\n"
+             "    LDA kefratraz_gfx,X\n"
+             "    STA (ZPTMP),Y\n"
+             "    INY\n"
+             "    INX\n"
+             "    LDA (ZPTMP),Y\n"
+             "    AND kefratraz_imask,X\n"
+             "    ORA kefratraz_gfx,X\n"
+             "    STA (ZPTMP),Y\n"
+
+             "kefratraz_skipdraw:\n"
              "    LDA ZPTMP\n"
              "    STA ZPTMP3\n"
              "    LDA ZPTMP2\n"
@@ -2938,28 +2892,17 @@ void gen_kefratraz(uint16_t *addr)
              "    LDA ZPTMP2\n"
              "    STA ZPTMP6\n"
              "    JSR zptmp_add40\n"
-             "    LDY #39\n"
-             ".copyprevrow:\n"
-             "    LDA (ZPTMP3),Y\n"
-             "    STA (ZPTMP5),Y\n"
-             "    STA (ZPTMP),Y\n"
-             "    DEY\n"
-             "    LDA (ZPTMP3),Y\n"
-             "    STA (ZPTMP5),Y\n"
-             "    STA (ZPTMP),Y\n"
-             "    DEY\n"
-             "    LDA (ZPTMP3),Y\n"
-             "    STA (ZPTMP5),Y\n"
-             "    STA (ZPTMP),Y\n"
-             "    DEY\n"
-             "    LDA (ZPTMP3),Y\n"
-             "    STA (ZPTMP5),Y\n"
-             "    STA (ZPTMP),Y\n"
-             "    DEY\n"
-             "    BPL .copyprevrow\n"
-
-             "    DEC ZPKCOUNT\n"
-             "    BNE kefratraz_frameloop\n"
+             "    LDY #0\n", tapdata, addr);
+    for (i=0; i<40; i++)
+    {
+        assemble("    LDA (ZPTMP3),Y\n"
+                 "    STA (ZPTMP5),Y\n"
+                 "    STA (ZPTMP),Y\n"
+                 "    INY\n", tapdata, addr);
+    }
+    assemble("    DEC ZPKCOUNT\n"
+             "    BEQ .done\n"
+             "    JMP kefratraz_frameloop\n"
              ".done:\n"
              "    RTS\n", tapdata, addr);
 
@@ -2973,14 +2916,16 @@ void gen_kefratraz(uint16_t *addr)
              "kefratraz_loop:\n"
              "    LDA ZPSWSIZE\n"
              "    CMP #80\n"
-             "    BEQ .noinc\n"
+             "    BEQ kefratraz_loop2\n"
              "    INC ZPSWSIZE\n"
-             ".noinc:\n"
+             "    JSR kefratraz_frame\n"
+             "    BCC kefratraz_loop\n"
+             "kefratraz_loop2:\n"
              "    JSR kefratraz_frame\n"
              "    LDA #$0f\n"
              "    LDX #$00\n"
              "    JSR cmp_mustim\n"
-             "    BCS kefratraz_loop\n"
+             "    BCS kefratraz_loop2\n"
              "    RTS\n", tapdata, addr);
 
     resolve_and_remove_temporary_syms(tapdata);

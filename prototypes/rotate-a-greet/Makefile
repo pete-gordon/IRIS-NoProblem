@@ -1,8 +1,9 @@
 
 TARGET := rag.exe
 OBJECTS := main.o
-CFLAGS += -g -O0 -Wall -Werror -Dmain=SDL_main -IC:/MinGW/include/SDL
-LDFLAGS += -mwindows -lmingw32 -lSDLmain -lSDL -lm
+CC = gcc
+CFLAGS += -g -O0 -Wall -Werror -Dmain=SDL_main
+LDFLAGS += -mwindows -lmingw32 -lSDL2main -lSDL2 -lm
 
 .PHONY: all clean
 

@@ -1,6 +1,7 @@
 TARGET = musicconv.exe
 OBJECTS = main.o
 
+CC = gcc
 CFLAGS = -Wall -Werror -Os -g
 LDFLAGS = -g
 

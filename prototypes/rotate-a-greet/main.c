@@ -6,7 +6,7 @@
 #include <time.h>
 #include <math.h>
 
-#include <SDL/sdl.h>
+#include <SDL2/sdl.h>
 
 #define ORIC_HIRES_W (240)
 #define ORIC_HIRES_H (200)
@@ -20,6 +20,8 @@
 #define NUM_FRAMES (8)
 #define STEP_PER_FRAME (3.14159265f / (2.0f * NUM_FRAMES))
 
+SDL_Window *win = NULL;
+SDL_Surface *wsrf = NULL;
 SDL_Surface *srf = NULL;
 
 uint8_t oric_screen[ORIC_HIRES_W * ORIC_HIRES_H];
@@ -261,17 +263,16 @@ SDL_bool init(void)
     }
 
 
-    CHECK_ALLOC(srf, SDL_SetVideoMode, (SDL_W, SDL_H, 8, SDL_HWPALETTE));
-    SDL_SetPalette(srf, SDL_LOGPAL|SDL_PHYSPAL, colours, 0, 8);
+    CHECK_ALLOC(win, SDL_CreateWindow, ("rotate-a-greet", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, SDL_W, SDL_H, 0));
+    CHECK_ALLOC(wsrf, SDL_GetWindowSurface, (win));
+    CHECK_ALLOC(srf, SDL_CreateRGBSurface, (SDL_SWSURFACE, SDL_W, SDL_H, 8, 0, 0, 0, 0));
 
-    if (SDL_MUSTLOCK(srf))
-        SDL_LockSurface(srf);
+    SDL_SetPaletteColors(srf->format->palette, colours, 0, 8);
 
     render(0);
 
-    if (SDL_MUSTLOCK(srf))
-        SDL_UnlockSurface(srf);
-    SDL_Flip(srf);
+    SDL_BlitSurface(srf, NULL, wsrf, NULL);
+    SDL_UpdateWindowSurface(win);
 
     /* Success */
     ret = SDL_TRUE;
@@ -306,7 +307,7 @@ int main(int argc, char *argv[])
     wrange = (max_w-min_w)+1;
 
     snprintf(tmp, sizeof(tmp), "numrows = %u, wrange = %u\n", numrows, wrange);
-    SDL_WM_SetCaption(tmp, tmp);
+    SDL_SetWindowTitle(win, tmp);
 
     rows = malloc(sizeof(struct row) * numrows * NUM_FRAMES);
     wmaps = malloc(sizeof(struct wmap) * wrange);
@@ -467,10 +468,10 @@ int main(int argc, char *argv[])
                             if (engrabbened)
                             {
                                 SDL_ShowCursor(SDL_FALSE);
-                                SDL_WM_GrabInput(SDL_GRAB_ON);
+                                SDL_SetWindowGrab(win, SDL_TRUE);
                             } else {
                                 SDL_ShowCursor(SDL_TRUE);
-                                SDL_WM_GrabInput(SDL_GRAB_OFF);
+                                SDL_SetWindowGrab(win, SDL_FALSE);
                             }
                             break;
 
@@ -485,15 +486,10 @@ int main(int argc, char *argv[])
             }
         };
 
-        if (SDL_MUSTLOCK(srf))
-            SDL_LockSurface(srf);
-
         render_fromrows(i);
 
-        if (SDL_MUSTLOCK(srf))
-            SDL_UnlockSurface(srf);
-
-        SDL_Flip(srf);
+        SDL_BlitSurface(srf, NULL, wsrf, NULL);
+        SDL_UpdateWindowSurface(win);
     }
 
 error:

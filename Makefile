@@ -2,6 +2,7 @@ TARGET = mkdemo.exe
 OBJECTS = noproblem.o asm6502.o music.o
 DEMOFILE = noproblm.tap
 SYMFILE = noproblm.sym
+CC = gcc
 
 CFLAGS = -Wall -Werror -O3 -g
 LDFLAGS = -g

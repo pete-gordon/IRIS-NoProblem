@@ -239,17 +239,17 @@ void gen_stripewobblerline(int size, uint16_t *addr)
             nextswap += size;
         }
 
-        /* Colour 0 is not really colour 0, we instead do dithered blue */
         if (0 != colourtab[colidx])
         {
-            thisbyte |= (onoff << (5-(i%6))); /* Set alternate bits */
+            /* Colours > 0 are solid colour (onoff=1 for colour) */
+            thisbyte |= (onoff << (5-(i%6)));
         }
         else
         {
-            /* Other colours are just solid bits */
+            /* Colour 0 is not really colour 0, we instead do dithered blue */
             if (onoff)
             {
-                thisbyte |= ((i&1) << (5-(i%6)));
+                thisbyte |= ((i&1) << (5-(i%6))); /* Set alternate bits */
             }
         }
 
